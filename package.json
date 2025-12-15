@@ -12,6 +12,9 @@
     "@clerk/nextjs": "^6.36.2",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-slot": "^1.2.4",
+    "@signpdf/placeholder-pdf-lib": "^3.2.6",
+    "@signpdf/signer-p12": "^3.2.4",
+    "@signpdf/signpdf": "^3.2.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "core-js": "^3.47.0",
@@ -21,6 +24,7 @@
     "jspdf": "^3.0.4",
     "lucide-react": "^0.561.0",
     "next": "16.0.10",
+    "pdf-lib": "^1.17.1",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "tailwind-merge": "^3.4.0"
