@@ -60,6 +60,7 @@ interface DatosRecibo {
     categoria: string
     basico: number
     cuil: string
+    telefono?: string
   }
   conceptos: Concepto[]
   totalHaberesConDesc: number

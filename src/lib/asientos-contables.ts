@@ -26,7 +26,26 @@
  * - 211304 EMBARGOS A DEPOSITAR
  */
 
-import { ResultadoLiquidacion } from './liquidacion-engine'
+// Tipo inline para evitar dependencia circular
+interface ResultadoLiquidacion {
+  empleado_id: number
+  legajo: string
+  nombre: string
+  apellido: string
+  categoria?: string
+  clase?: string
+  totales: {
+    neto: number
+    haberes: number
+    retenciones: number
+    contribuciones: number
+  }
+  conceptos: Array<{
+    concepto_codigo: string
+    concepto_tipo: number
+    importe: number
+  }>
+}
 
 export interface AsientoContable {
   cuenta_codigo: string

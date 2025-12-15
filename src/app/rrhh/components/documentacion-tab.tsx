@@ -207,7 +207,7 @@ export function DocumentacionTab() {
               }`}
             >
               {tab.label}
-              {tab.count && tab.count > 0 && (
+              {'count' in tab && tab.count > 0 && (
                 <span className={`px-1 py-0.5 text-[10px] rounded ${
                   viewMode === tab.id ? 'bg-white/20' : 'bg-[#C4322F] text-white'
                 }`}>{tab.count}</span>
@@ -363,7 +363,7 @@ export function DocumentacionTab() {
                         <div key={`${empleado.id}-${codigo}`} className="px-4 py-3 flex items-center justify-between">
                           <div>
                             <span className="text-sm text-gray-900">{empleado.nombre}</span>
-                            <span className="text-xs text-gray-500 ml-2">{tipo?.nombre} - Venció: {doc.vencimiento}</span>
+                            <span className="text-xs text-gray-500 ml-2">{tipo?.nombre} - Venció: {'vencimiento' in doc ? doc.vencimiento : doc.fecha}</span>
                           </div>
                           <button className="text-xs text-[#C4322F] hover:underline">Actualizar</button>
                         </div>
@@ -390,7 +390,7 @@ export function DocumentacionTab() {
                         <div key={`${empleado.id}-${codigo}`} className="px-4 py-3 flex items-center justify-between">
                           <div>
                             <span className="text-sm text-gray-900">{empleado.nombre}</span>
-                            <span className="text-xs text-gray-500 ml-2">{tipo?.nombre} - Vence: {doc.vencimiento}</span>
+                            <span className="text-xs text-gray-500 ml-2">{tipo?.nombre} - Vence: {'vencimiento' in doc ? doc.vencimiento : doc.fecha}</span>
                           </div>
                           <button className="text-xs text-gray-600 hover:underline">Renovar</button>
                         </div>

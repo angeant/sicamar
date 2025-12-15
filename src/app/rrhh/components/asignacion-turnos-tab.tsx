@@ -39,6 +39,16 @@ interface Empleado {
   planta: string | null
 }
 
+// Tipo para respuesta de API de empleados con asignación
+interface EmpleadoConAsignacion {
+  empleado_id: number
+  bloque_id: number | null
+  bloque_codigo: string | null
+  bloque_nombre: string | null
+  turno_fijo: { id: number; codigo: string } | null
+  planta: string | null
+}
+
 interface Bloque {
   id: number
   codigo: string
@@ -138,7 +148,7 @@ export function AsignacionTurnosTab() {
       const todosEmpleados = sinAsignarData.empleados || []
       
       // Crear mapa de empleados asignados
-      const asignadosMap = new Map<number, Empleado>()
+      const asignadosMap = new Map<number, EmpleadoConAsignacion>()
       for (const emp of empleadosConAsignacion) {
         asignadosMap.set(emp.empleado_id, emp)
       }

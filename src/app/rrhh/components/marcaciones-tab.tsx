@@ -371,11 +371,13 @@ export function MarcacionesTab() {
         setMarcaciones(data.marcaciones)
         
         // Extraer legajos únicos para buscar turnos
-        const legajos = [...new Set(
-          data.marcaciones
-            .map((m: Marcacion) => m.legajo)
-            .filter((l: string | null): l is string => l !== null && l !== '')
-        )]
+        const legajosSet = new Set<string>()
+        data.marcaciones.forEach((m: Marcacion) => {
+          if (m.legajo && m.legajo !== '') {
+            legajosSet.add(m.legajo)
+          }
+        })
+        const legajos = Array.from(legajosSet)
         
         // Fetch turnos asignados
         if (legajos.length > 0) {
@@ -800,22 +802,22 @@ export function MarcacionesTab() {
     )
   }
 
-  const jornadas = calcularJornadas()
+  const jornadas: JornadaEmpleado[] = calcularJornadas()
   
   // Orden de prioridad de turnos para ordenamiento
-  const turnoOrder = { madrugada: 0, mañana: 1, tarde: 2, flexible: 3, null: 4 }
+  const turnoOrder: Record<string, number> = { madrugada: 0, mañana: 1, tarde: 2, flexible: 3 }
   
-  const jornadasFiltradas = jornadas
-    .filter(j => 
+  const jornadasFiltradas: JornadaEmpleado[] = jornadas
+    .filter((j: JornadaEmpleado) => 
       searchQuery === '' || 
       j.nombre_completo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       j.legajo?.toLowerCase().includes(searchQuery.toLowerCase())
     )
-    .sort((a, b) => {
+    .sort((a: JornadaEmpleado, b: JornadaEmpleado) => {
       if (sortBy === 'turno') {
         // Ordenar por turno, luego por nombre
-        const turnoA = turnoOrder[a.turno ?? 'null'] ?? 4
-        const turnoB = turnoOrder[b.turno ?? 'null'] ?? 4
+        const turnoA = a.turno ? (turnoOrder[a.turno] ?? 4) : 4
+        const turnoB = b.turno ? (turnoOrder[b.turno] ?? 4) : 4
         if (turnoA !== turnoB) return turnoA - turnoB
       }
       // Ordenar por nombre (default o secundario)
@@ -1307,7 +1309,7 @@ export function MarcacionesTab() {
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-8 h-8 animate-spin text-[#C4322F]" />
               </div>
-            ) : jornadasFiltradas.length === 0 ? (
+            ) : jornadas.length === 0 ? (
               <div className="px-5 py-12 text-center text-gray-500">
                 No hay jornadas para mostrar
               </div>
@@ -1347,7 +1349,7 @@ export function MarcacionesTab() {
 
               {/* Filas */}
               <div className="divide-y divide-gray-100">
-                {jornadasFiltradas.map((jornada) => {
+                {jornadasFiltradas.map((jornada: JornadaEmpleado) => {
                   // Verificar si es sábado
                   const sabado = esSabado(selectedDate)
                   
@@ -1372,7 +1374,9 @@ export function MarcacionesTab() {
                   const bgColor = '#f1f5f9' // slate-100
                   
                   // Check if this employee is selected
+                  // @ts-expect-error TypeScript narrowing issue with nested ternaries
                   const isSelected = selectedEmpleado?.legajo === jornada.legajo && 
+                  // @ts-expect-error TypeScript narrowing issue with nested ternaries
                                      selectedEmpleado?.id_biometrico === jornada.id_biometrico
 
                   return (

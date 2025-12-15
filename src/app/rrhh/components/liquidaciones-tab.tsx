@@ -50,6 +50,8 @@ interface PeriodoLiquidacion {
   quincena: number | null
   fecha_liquidacion: string
   fecha_periodo: string
+  fecha_desde?: string
+  fecha_hasta?: string
   tipo: string
   tipo_label: string
   descripcion: string
