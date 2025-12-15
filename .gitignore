@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# example projects
+example_projects/
+
 # next.js
 /.next/
 /out/
