@@ -1,10 +1,131 @@
 "use client";
 
-import { SignIn } from "@clerk/nextjs";
+import { useState } from "react";
+import { useSignIn } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { Factory, Shield, Users, Clock } from "lucide-react";
+import { Factory, Shield, Users, Clock, Mail, Loader2, ArrowLeft, CheckCircle } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+  InputOTPSeparator,
+} from "@/components/ui/input-otp";
+
+type Step = "email" | "otp" | "success";
 
 export default function SignInPage() {
+  const { signIn, setActive, isLoaded } = useSignIn();
+  const router = useRouter();
+  
+  const [step, setStep] = useState<Step>("email");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Enviar código OTP al email
+  const handleSendCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isLoaded || !signIn) return;
+    
+    setLoading(true);
+    setError("");
+
+    try {
+      // Iniciar el flujo de sign-in con email code
+      await signIn.create({
+        identifier: email,
+        strategy: "email_code",
+      });
+      
+      // Pasar al paso de verificación
+      setStep("otp");
+    } catch (err: unknown) {
+      const error = err as { errors?: Array<{ message: string }> };
+      setError(error.errors?.[0]?.message || "Error al enviar el código. Verificá tu email.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Verificar código OTP
+  const handleVerifyCode = async (otpCode: string) => {
+    if (!isLoaded || !signIn || otpCode.length !== 6) return;
+    
+    setLoading(true);
+    setError("");
+
+    try {
+      // Intentar completar el sign-in con el código
+      const result = await signIn.attemptFirstFactor({
+        strategy: "email_code",
+        code: otpCode,
+      });
+
+      if (result.status === "complete") {
+        // Éxito - activar la sesión
+        setStep("success");
+        await setActive({ session: result.createdSessionId });
+        
+        // Redirigir después de un breve delay para mostrar el mensaje de éxito
+        setTimeout(() => {
+          router.push("/rrhh");
+        }, 1000);
+      }
+    } catch (err: unknown) {
+      const error = err as { errors?: Array<{ message: string }> };
+      setError(error.errors?.[0]?.message || "Código inválido. Intentá de nuevo.");
+      setCode("");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Manejar cambio en OTP
+  const handleOTPChange = (value: string) => {
+    setCode(value);
+    setError("");
+    
+    // Auto-verificar cuando se completan 6 dígitos
+    if (value.length === 6) {
+      handleVerifyCode(value);
+    }
+  };
+
+  // Volver al paso de email
+  const handleBack = () => {
+    setStep("email");
+    setCode("");
+    setError("");
+  };
+
+  // Reenviar código
+  const handleResendCode = async () => {
+    if (!isLoaded || !signIn) return;
+    
+    setLoading(true);
+    setError("");
+
+    try {
+      await signIn.create({
+        identifier: email,
+        strategy: "email_code",
+      });
+      setCode("");
+    } catch (err: unknown) {
+      const error = err as { errors?: Array<{ message: string }> };
+      setError(error.errors?.[0]?.message || "Error al reenviar el código.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex">
       {/* Left Panel - Branding */}
@@ -100,47 +221,169 @@ export default function SignInPage() {
 
         {/* Form Container */}
         <div className="flex-1 flex items-center justify-center p-8 bg-gray-50">
-          <div className="w-full max-w-md space-y-8">
-            {/* Welcome Text */}
-            <div className="text-center lg:text-left">
-              <h2 className="text-2xl font-bold text-gray-900">
-                Bienvenido de nuevo
-              </h2>
-              <p className="mt-2 text-gray-600">
-                Ingresá tus credenciales para acceder al sistema
-              </p>
-            </div>
+          <Card className="w-full max-w-md shadow-xl border-0">
+            {step === "email" && (
+              <>
+                <CardHeader className="space-y-1 pb-6">
+                  <div className="w-14 h-14 rounded-2xl bg-[#C4322F]/10 flex items-center justify-center mb-4">
+                    <Mail className="w-7 h-7 text-[#C4322F]" />
+                  </div>
+                  <CardTitle className="text-2xl font-bold">Bienvenido</CardTitle>
+                  <CardDescription className="text-base">
+                    Ingresá tu email corporativo para recibir un código de acceso
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleSendCode} className="space-y-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-sm font-medium">
+                        Email corporativo
+                      </Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="tu.nombre@sicamar.com"
+                        value={email}
+                        onChange={(e) => {
+                          setEmail(e.target.value);
+                          setError("");
+                        }}
+                        required
+                        disabled={loading}
+                        className="h-12 text-base"
+                      />
+                    </div>
 
-            {/* Clerk SignIn Component */}
-            <div className="flex justify-center">
-              <SignIn 
-                appearance={{
-                  elements: {
-                    rootBox: "w-full",
-                    card: "shadow-none bg-transparent w-full",
-                    headerTitle: "hidden",
-                    headerSubtitle: "hidden",
-                    socialButtonsBlockButton: "border-gray-300 hover:bg-gray-50 text-gray-700",
-                    formFieldInput: "border-gray-300 focus:border-[#C4322F] focus:ring-[#C4322F]/20",
-                    formButtonPrimary: "bg-[#C4322F] hover:bg-[#a82926] text-white shadow-lg shadow-[#C4322F]/25",
-                    footerActionLink: "text-[#C4322F] hover:text-[#a82926]",
-                    identityPreviewEditButton: "text-[#C4322F]",
-                    formFieldAction: "text-[#C4322F]",
-                    footer: "hidden"
-                  },
-                  layout: {
-                    socialButtonsPlacement: "bottom",
-                    showOptionalFields: false,
-                  }
-                }}
-              />
-            </div>
+                    {error && (
+                      <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                        <p className="text-sm text-red-600">{error}</p>
+                      </div>
+                    )}
 
-            {/* Additional Info */}
-            <div className="text-center text-sm text-gray-500 pt-4 border-t border-gray-200">
-              <p>¿Problemas para ingresar? Contactá a RRHH</p>
-            </div>
-          </div>
+                    <Button 
+                      type="submit" 
+                      disabled={loading || !email}
+                      className="w-full h-12 text-base font-semibold bg-[#C4322F] hover:bg-[#a82926] shadow-lg shadow-[#C4322F]/25"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Enviando código...
+                        </>
+                      ) : (
+                        <>
+                          Continuar
+                          <Mail className="w-5 h-5 ml-2" />
+                        </>
+                      )}
+                    </Button>
+
+                    <p className="text-center text-sm text-gray-500">
+                      Te enviaremos un código de 6 dígitos a tu email
+                    </p>
+                  </form>
+                </CardContent>
+              </>
+            )}
+
+            {step === "otp" && (
+              <>
+                <CardHeader className="space-y-1 pb-6">
+                  <button
+                    onClick={handleBack}
+                    className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Volver
+                  </button>
+                  <div className="w-14 h-14 rounded-2xl bg-[#C4322F]/10 flex items-center justify-center mb-4">
+                    <Shield className="w-7 h-7 text-[#C4322F]" />
+                  </div>
+                  <CardTitle className="text-2xl font-bold">Verificá tu identidad</CardTitle>
+                  <CardDescription className="text-base">
+                    Ingresá el código de 6 dígitos que enviamos a{" "}
+                    <span className="font-medium text-gray-700">{email}</span>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-6">
+                    <div className="flex justify-center">
+                      <InputOTP
+                        maxLength={6}
+                        value={code}
+                        onChange={handleOTPChange}
+                        disabled={loading}
+                      >
+                        <InputOTPGroup>
+                          <InputOTPSlot index={0} className="w-12 h-14 text-xl" />
+                          <InputOTPSlot index={1} className="w-12 h-14 text-xl" />
+                          <InputOTPSlot index={2} className="w-12 h-14 text-xl" />
+                        </InputOTPGroup>
+                        <InputOTPSeparator />
+                        <InputOTPGroup>
+                          <InputOTPSlot index={3} className="w-12 h-14 text-xl" />
+                          <InputOTPSlot index={4} className="w-12 h-14 text-xl" />
+                          <InputOTPSlot index={5} className="w-12 h-14 text-xl" />
+                        </InputOTPGroup>
+                      </InputOTP>
+                    </div>
+
+                    {loading && (
+                      <div className="flex items-center justify-center gap-2 text-gray-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span className="text-sm">Verificando...</span>
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                        <p className="text-sm text-red-600 text-center">{error}</p>
+                      </div>
+                    )}
+
+                    <div className="text-center">
+                      <p className="text-sm text-gray-500 mb-2">
+                        ¿No recibiste el código?
+                      </p>
+                      <button
+                        onClick={handleResendCode}
+                        disabled={loading}
+                        className="text-sm font-medium text-[#C4322F] hover:text-[#a82926] transition-colors disabled:opacity-50"
+                      >
+                        Reenviar código
+                      </button>
+                    </div>
+                  </div>
+                </CardContent>
+              </>
+            )}
+
+            {step === "success" && (
+              <>
+                <CardHeader className="space-y-1 pb-6 text-center">
+                  <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle className="w-8 h-8 text-green-600" />
+                  </div>
+                  <CardTitle className="text-2xl font-bold text-green-700">¡Bienvenido!</CardTitle>
+                  <CardDescription className="text-base">
+                    Acceso verificado correctamente. Redirigiendo al sistema...
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-[#C4322F]" />
+                  </div>
+                </CardContent>
+              </>
+            )}
+          </Card>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 bg-gray-50 text-center">
+          <p className="text-xs text-gray-400">
+            ¿Problemas para ingresar? Contactá a RRHH
+          </p>
         </div>
       </div>
     </div>
@@ -164,4 +407,3 @@ function FeatureCard({
     </div>
   );
 }
-
