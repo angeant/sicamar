@@ -110,12 +110,9 @@ const contextoAsistencia = {
 // ============ COMPONENTE PRINCIPAL ============
 
 export function AsistenciaTab() {
-  const [fechaDesde, setFechaDesde] = useState(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 7)
-    return d.toISOString().split('T')[0]
-  })
-  const [fechaHasta, setFechaHasta] = useState(() => new Date().toISOString().split('T')[0])
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
+  const [fechasInicializadas, setFechasInicializadas] = useState(false)
   const [jornadas, setJornadas] = useState<Jornada[]>([])
   const [resumen, setResumen] = useState<Resumen | null>(null)
   const [loading, setLoading] = useState(true)
@@ -123,6 +120,18 @@ export function AsistenciaTab() {
   const [showContexto, setShowContexto] = useState(false)
   const [filtroEstado, setFiltroEstado] = useState<string>('todos')
   const [calculando, setCalculando] = useState(false)
+
+  // Inicializar fechas solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    if (!fechasInicializadas) {
+      const d = new Date()
+      const desde = new Date(d)
+      desde.setDate(d.getDate() - 7)
+      setFechaDesde(desde.toISOString().split('T')[0])
+      setFechaHasta(d.toISOString().split('T')[0])
+      setFechasInicializadas(true)
+    }
+  }, [fechasInicializadas])
 
   // Cargar jornadas
   const cargarJornadas = useCallback(async () => {

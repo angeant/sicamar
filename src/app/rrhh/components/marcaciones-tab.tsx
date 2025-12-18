@@ -320,7 +320,8 @@ export function MarcacionesTab() {
   const [turnosAsignados, setTurnosAsignados] = useState<Map<string, TurnoAsignacion>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString())
+  const [selectedDate, setSelectedDate] = useState('')
+  const [dateInitialized, setDateInitialized] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterTipo, setFilterTipo] = useState<'all' | 'E' | 'S'>('all')
   // Vista "Jornadas" (timeline) por defecto
@@ -338,6 +339,14 @@ export function MarcacionesTab() {
   // Estado para modal de marcaciones crudas
   const [modalMarcaciones, setModalMarcaciones] = useState<{fecha: string, marcaciones: Marcacion[]} | null>(null)
   const [showContexto, setShowContexto] = useState(false)
+
+  // Inicializar fecha solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    if (!dateInitialized) {
+      setSelectedDate(getLocalDateString())
+      setDateInitialized(true)
+    }
+  }, [dateInitialized])
 
   // Fetch turnos asignados para los legajos de las marcaciones
   const fetchTurnos = async (legajos: string[]) => {

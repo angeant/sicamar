@@ -126,7 +126,7 @@ const contextoTurnos = {
 // ============ COMPONENTE PRINCIPAL ============
 
 export function TurnosRotacionesTab() {
-  const [selectedWeek, setSelectedWeek] = useState(new Date())
+  const [selectedWeek, setSelectedWeek] = useState<Date | null>(null)
   const [selectedPlanta, setSelectedPlanta] = useState<string>('todas')
   const [showContexto, setShowContexto] = useState(false)
   const [bloques, setBloques] = useState<BloqueRotacion[]>([])
@@ -134,8 +134,15 @@ export function TurnosRotacionesTab() {
   const [error, setError] = useState<string | null>(null)
   const [expandedBloque, setExpandedBloque] = useState<number | null>(null)
 
-  const weekDates = useMemo(() => getWeekDates(selectedWeek), [selectedWeek])
-  const semanaStr = useMemo(() => getLunesSemana(selectedWeek), [selectedWeek])
+  // Inicializar fecha solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    if (!selectedWeek) {
+      setSelectedWeek(new Date())
+    }
+  }, [selectedWeek])
+
+  const weekDates = useMemo(() => selectedWeek ? getWeekDates(selectedWeek) : [], [selectedWeek])
+  const semanaStr = useMemo(() => selectedWeek ? getLunesSemana(selectedWeek) : '', [selectedWeek])
 
   // Cargar bloques
   const cargarBloques = useCallback(async () => {
@@ -171,9 +178,19 @@ export function TurnosRotacionesTab() {
   }, [cargarBloques])
 
   const navigateWeek = (direction: 'prev' | 'next') => {
+    if (!selectedWeek) return
     const newDate = new Date(selectedWeek)
     newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7))
     setSelectedWeek(newDate)
+  }
+
+  // No renderizar hasta que tengamos la fecha
+  if (!selectedWeek) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <RefreshCw className="w-6 h-6 text-gray-400 animate-spin" />
+      </div>
+    )
   }
 
   // Agrupar bloques por planta

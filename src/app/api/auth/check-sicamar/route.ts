@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
 
+// Super admins - siempre tienen acceso a todo
+const SUPER_ADMIN_EMAILS = [
+  'angelo@kalia.app',
+  'uguareschi@gmail.com',
+]
+
 // IDs de usuarios con acceso a Sicamar (hardcoded para ahora)
 const SICAMAR_USER_IDS = [
   '62f9915b-45b9-425e-a28f-045be9575886', // rreale@sicamar.com.ar
@@ -11,13 +17,22 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
+    const email = searchParams.get('email')
     
     if (!userId) {
       return NextResponse.json({ isMember: false, error: 'userId required' }, { status: 400 })
     }
     
-    // Por ahora, verificar contra lista hardcoded
-    // TODO: Migrar a tabla user_organizations cuando esté creada
+    // Super admins siempre tienen acceso
+    if (email && SUPER_ADMIN_EMAILS.includes(email.toLowerCase())) {
+      return NextResponse.json({ 
+        isMember: true, 
+        role: 'superadmin',
+        source: 'superadmin' 
+      })
+    }
+    
+    // Verificar contra lista hardcoded de Sicamar
     const isMember = SICAMAR_USER_IDS.includes(userId)
     
     // También intentar verificar en la base de datos

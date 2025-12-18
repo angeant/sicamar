@@ -109,16 +109,9 @@ const contexto = {
 // ============ COMPONENTE PRINCIPAL ============
 
 export function ValidacionJornadasTab() {
-  const [fechaDesde, setFechaDesde] = useState(() => {
-    const d = new Date()
-    d.setDate(1) // Primer día del mes
-    return d.toISOString().split('T')[0]
-  })
-  const [fechaHasta, setFechaHasta] = useState(() => {
-    const d = new Date()
-    d.setDate(15) // Día 15
-    return d.toISOString().split('T')[0]
-  })
+  const [fechaDesde, setFechaDesde] = useState('')
+  const [fechaHasta, setFechaHasta] = useState('')
+  const [fechasInicializadas, setFechasInicializadas] = useState(false)
   
   const [jornadas, setJornadas] = useState<JornadaValidacion[]>([])
   const [resumen, setResumen] = useState<ResumenValidacion | null>(null)
@@ -131,6 +124,20 @@ export function ValidacionJornadasTab() {
   const [filtroEstado, setFiltroEstado] = useState<string>('todos')
   const [busqueda, setBusqueda] = useState('')
   const [fechaSeleccionada, setFechaSeleccionada] = useState<string | null>(null)
+
+  // Inicializar fechas solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    if (!fechasInicializadas) {
+      const d = new Date()
+      const desde = new Date(d)
+      desde.setDate(1)
+      const hasta = new Date(d)
+      hasta.setDate(15)
+      setFechaDesde(desde.toISOString().split('T')[0])
+      setFechaHasta(hasta.toISOString().split('T')[0])
+      setFechasInicializadas(true)
+    }
+  }, [fechasInicializadas])
 
   // Cargar jornadas
   const cargarJornadas = useCallback(async () => {

@@ -477,7 +477,8 @@ export default function Home() {
       
       setCheckingAccess(true)
       try {
-        const res = await fetch(`/api/auth/check-sicamar?userId=${user.id}`)
+        const email = user.primaryEmailAddress?.emailAddress || ''
+        const res = await fetch(`/api/auth/check-sicamar?userId=${user.id}&email=${encodeURIComponent(email)}`)
         const data = await res.json()
         setIsSicamarMember(data.isMember)
       } catch (err) {

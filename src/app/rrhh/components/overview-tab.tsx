@@ -37,6 +37,12 @@ export function OverviewTab() {
   const [estados, setEstados] = useState<EstadoEmpleado[]>([])
   const [totalEmpleados, setTotalEmpleados] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [fechaHoy, setFechaHoy] = useState<string>('')
+
+  // Inicializar fecha solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    setFechaHoy(format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es }))
+  }, [])
 
   const cargarDatos = async () => {
     setLoading(true)
@@ -104,7 +110,7 @@ export function OverviewTab() {
         <div>
           <h2 className="text-base font-medium text-gray-900">Vista General</h2>
           <p className="text-sm text-gray-500">
-            {format(new Date(), "EEEE d 'de' MMMM, yyyy", { locale: es })}
+            {fechaHoy || '\u00A0'}
           </p>
         </div>
         <button 

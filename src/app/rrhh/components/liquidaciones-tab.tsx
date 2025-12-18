@@ -226,9 +226,9 @@ export function LiquidacionesTab() {
   const [loadingDetalle, setLoadingDetalle] = useState(false)
   const [error, setError] = useState<string | null>(null)
   
-  // Filtros
+  // Filtros - usamos 0 como placeholder, se inicializa en useEffect
   const [filtroTipo, setFiltroTipo] = useState('')
-  const [filtroAnio, setFiltroAnio] = useState(new Date().getFullYear())
+  const [filtroAnio, setFiltroAnio] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedEmpleado, setExpandedEmpleado] = useState<number | null>(null)
   const [conceptoSeleccionado, setConceptoSeleccionado] = useState<ConceptoLiquidado | null>(null)
@@ -241,10 +241,22 @@ export function LiquidacionesTab() {
   const [conceptoEditar, setConceptoEditar] = useState<ConceptoCatalogo | null>(null)
   const [showConceptoModal, setShowConceptoModal] = useState(false)
   
-  // Simulación
-  const [simulacionAnio, setSimulacionAnio] = useState(new Date().getFullYear())
-  const [simulacionMes, setSimulacionMes] = useState(new Date().getMonth() + 1)
+  // Simulación - usamos 0 como placeholder
+  const [simulacionAnio, setSimulacionAnio] = useState(0)
+  const [simulacionMes, setSimulacionMes] = useState(0)
   const [simulacionTipo, setSimulacionTipo] = useState('SQN')
+  const [fechasInicializadas, setFechasInicializadas] = useState(false)
+
+  // Inicializar fechas solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    if (!fechasInicializadas) {
+      const now = new Date()
+      setFiltroAnio(now.getFullYear())
+      setSimulacionAnio(now.getFullYear())
+      setSimulacionMes(now.getMonth() + 1)
+      setFechasInicializadas(true)
+    }
+  }, [fechasInicializadas])
   const [simulacionPeriodoBejerman, setSimulacionPeriodoBejerman] = useState<string | number | null>(null)
   const [simulacionCompararBejerman, setSimulacionCompararBejerman] = useState(true)
   const [simulacionResultado, setSimulacionResultado] = useState<SimulacionResultado | null>(null)
