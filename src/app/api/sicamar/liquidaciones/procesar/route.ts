@@ -179,7 +179,14 @@ export async function POST(request: NextRequest) {
       fechaHasta.setDate(fechaHasta.getDate() + 1)
       
       // Obtener TODAS las marcaciones del período (sin límite de 1000)
-      let allMarcaciones: typeof marcacionesData = []
+      let allMarcaciones: Array<{
+        id: number
+        id_biometrico: string
+        fecha_hora: string
+        tipo: string
+        id_reloj?: number
+        archivo_origen?: string
+      }> = []
       let page = 0
       const pageSize = 1000
       let hasMore = true

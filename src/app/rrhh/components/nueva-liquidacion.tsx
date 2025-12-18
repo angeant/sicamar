@@ -46,6 +46,18 @@ interface ConceptoCalculado {
   formula_aplicada: string
 }
 
+interface AsistenciaDia {
+  fecha: string
+  dia?: number
+  diaSemana?: string
+  estado: 'presente' | 'ausente' | 'licencia' | 'vacaciones' | 'feriado' | 'fin_de_semana' | 'tardanza'
+  turno?: string
+  horas?: number
+  horaEntrada?: string
+  horaSalida?: string
+  feriado?: boolean
+}
+
 interface EmpleadoLiquidado {
   legajo: string
   empleado_id: number
@@ -58,6 +70,7 @@ interface EmpleadoLiquidado {
     contribuciones: number
     neto: number
   }
+  asistencias?: AsistenciaDia[]
 }
 
 interface ResultadoLiquidacion {
@@ -675,7 +688,7 @@ export function NuevaLiquidacion() {
                             <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Asistencias de la quincena</span>
                             <div className="flex items-center gap-3 text-xs text-gray-500">
                               <span>{emp.asistencias.length} días</span>
-                              <span className="font-medium text-gray-700">{emp.asistencias.reduce((sum: number, a: { horas: number }) => sum + a.horas, 0).toFixed(1)} hs totales</span>
+                              <span className="font-medium text-gray-700">{emp.asistencias.reduce((sum, a) => sum + (a.horas || 0), 0).toFixed(1)} hs totales</span>
                             </div>
                           </div>
                           
@@ -694,19 +707,11 @@ export function NuevaLiquidacion() {
                               const diaInicio = esPrimeraQuincena ? 1 : 16
                               const diaFin = esPrimeraQuincena ? 15 : new Date(resultado?.periodo.anio || 2025, resultado?.periodo.mes || 12, 0).getDate()
                               
-                              interface AsistenciaCompleta {
-                                dia: number
-                                diaSemana?: string
-                                turno: string
-                                horas: number
-                                horaEntrada?: string
-                                horaSalida?: string
-                                feriado?: boolean
-                              }
-                              
-                              const asistenciasMap = new Map<number, AsistenciaCompleta>()
-                              emp.asistencias.forEach((a: AsistenciaCompleta) => {
-                                asistenciasMap.set(a.dia, a)
+                              const asistenciasMap = new Map<number, AsistenciaDia>()
+                              emp.asistencias.forEach((a) => {
+                                if (a.dia !== undefined) {
+                                  asistenciasMap.set(a.dia, a)
+                                }
                               })
                               
                               const DIAS = ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa']

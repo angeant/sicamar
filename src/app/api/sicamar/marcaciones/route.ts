@@ -79,7 +79,9 @@ export async function GET(request: NextRequest) {
 
     for (const ident of identificacionesData || []) {
       if (ident.id_biometrico && ident.empleados) {
-        const emp = ident.empleados as {
+        // empleados puede ser un objeto o array dependiendo de la versión de Supabase
+        const empData = ident.empleados as unknown
+        const emp = (Array.isArray(empData) ? empData[0] : empData) as {
           id: number
           legajo: string
           nombre: string
@@ -87,8 +89,10 @@ export async function GET(request: NextRequest) {
           sector: string
           categoria: string
           foto_thumb_url: string | null
+        } | undefined
+        if (emp) {
+          empleadosPorBiometrico.set(ident.id_biometrico, emp)
         }
-        empleadosPorBiometrico.set(ident.id_biometrico, emp)
       }
     }
 

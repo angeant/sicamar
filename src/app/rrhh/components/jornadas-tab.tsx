@@ -665,9 +665,16 @@ export function JornadasTab() {
   const [resumenOpen, setResumenOpen] = useState<EmpleadoConJornadas | null>(null)
   const [filtroSector, setFiltroSector] = useState<string>('')
   const [ordenarPorDia, setOrdenarPorDia] = useState<string | null>(null)
+  const [hoy, setHoy] = useState<string>('')
+  
+  // Inicializar fecha solo en cliente para evitar hydration mismatch
+  useEffect(() => {
+    if (!hoy) {
+      setHoy(new Date().toISOString().split('T')[0])
+    }
+  }, [hoy])
   
   const fechas = getFechasQuincena(anio, mes, quincena)
-  const hoy = new Date().toISOString().split('T')[0]
   
   const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']

@@ -528,40 +528,59 @@ export default function PlanificacionPage() {
       
       {/* Tabla de planificación */}
       <div className="max-w-[1800px] mx-auto px-8 py-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <p className="text-neutral-300 text-sm">Cargando planificación...</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr>
-                  <th className="text-left text-xs font-normal text-neutral-400 pb-4 pr-6 w-48">
-                    Empleado
-                  </th>
-                  {fechas.map((fecha, idx) => {
-                    const d = new Date(fecha + 'T12:00:00')
-                    const mes = d.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')
-                    
-                    return (
-                      <th 
-                        key={fecha}
-                        className={`text-center pb-4 px-2 min-w-[60px] ${esHoy(fecha) ? 'bg-neutral-100/50 rounded-t-lg' : ''}`}
-                      >
-                        <p className={`text-[10px] uppercase tracking-wider ${esHoy(fecha) ? 'text-neutral-900 font-medium' : 'text-neutral-400'}`}>
-                          {DIAS_CORTOS[idx]}
-                        </p>
-                        <p className="text-[9px] text-neutral-300 mt-0.5">
-                          {mes}
-                        </p>
-                      </th>
-                    )
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {empleados.map(({ empleado, jornadas }) => (
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="text-left text-xs font-normal text-neutral-400 pb-4 pr-6 w-48">
+                  Empleado
+                </th>
+                {fechas.map((fecha, idx) => {
+                  const d = new Date(fecha + 'T12:00:00')
+                  const dia = d.getDate()
+                  const mes = d.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')
+                  
+                  return (
+                    <th 
+                      key={fecha}
+                      className={`text-center pb-4 px-2 min-w-[70px] ${esHoy(fecha) ? 'bg-neutral-100/50 rounded-t-lg' : ''}`}
+                    >
+                      <p className={`text-[10px] uppercase tracking-wider ${esHoy(fecha) ? 'text-neutral-900 font-medium' : 'text-neutral-400'}`}>
+                        {DIAS_CORTOS[idx]}
+                      </p>
+                      <p className={`text-sm font-light mt-0.5 ${esHoy(fecha) ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                        {dia}
+                      </p>
+                      <p className="text-[9px] text-neutral-300">
+                        {mes}
+                      </p>
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+              <tbody className={loading ? 'opacity-40 pointer-events-none' : ''}>
+                {loading && empleados.length === 0 ? (
+                  // Skeleton rows mientras carga por primera vez
+                  Array.from({ length: 15 }).map((_, i) => (
+                    <tr key={i} className="border-t border-neutral-50">
+                      <td className="py-2 pr-6">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-4 bg-neutral-100 rounded animate-pulse" />
+                          <div>
+                            <div className="w-24 h-4 bg-neutral-100 rounded animate-pulse mb-1" />
+                            <div className="w-16 h-3 bg-neutral-50 rounded animate-pulse" />
+                          </div>
+                        </div>
+                      </td>
+                      {fechas.map((fecha) => (
+                        <td key={fecha} className="text-center py-2 px-1">
+                          <div className="w-12 h-4 bg-neutral-50 rounded animate-pulse mx-auto" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : empleados.map(({ empleado, jornadas }) => (
                   <tr key={empleado.id} className="border-t border-neutral-50 hover:bg-neutral-50/50 transition-colors">
                     <td className="py-2 pr-6">
                       <div className="flex items-center gap-3">
@@ -641,7 +660,6 @@ export default function PlanificacionPage() {
               </tbody>
             </table>
           </div>
-        )}
         
         {/* Leyenda minimalista */}
         <div className="mt-8 pt-6 border-t border-neutral-100">
