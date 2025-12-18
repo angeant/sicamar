@@ -93,6 +93,124 @@ function esHorarioNocturno(entrada: string | null | undefined, salida: string | 
   return entrada > salida // ej: 22:00 > 06:00
 }
 
+// Calcular horas entre dos tiempos (considerando cruce de día)
+function calcularHoras(entrada: string, salida: string): number {
+  const [hE, mE] = entrada.split(':').map(Number)
+  const [hS, mS] = salida.split(':').map(Number)
+  
+  let minutosEntrada = hE * 60 + mE
+  let minutosSalida = hS * 60 + mS
+  
+  // Si cruza medianoche (entrada > salida)
+  if (minutosEntrada > minutosSalida) {
+    minutosSalida += 24 * 60
+  }
+  
+  return (minutosSalida - minutosEntrada) / 60
+}
+
+// Generar array de horas entre entrada y salida
+function generarHorasArray(entrada: string, salida: string): number[] {
+  const [hE] = entrada.split(':').map(Number)
+  const [hS] = salida.split(':').map(Number)
+  
+  const horas: number[] = []
+  let h = hE
+  
+  // Si cruza medianoche
+  if (hE > hS) {
+    // Desde entrada hasta 24
+    while (h < 24) {
+      horas.push(h)
+      h++
+    }
+    h = 0
+    // Desde 0 hasta salida
+    while (h < hS) {
+      horas.push(h)
+      h++
+    }
+  } else {
+    // Mismo día
+    while (h < hS) {
+      horas.push(h)
+      h++
+    }
+  }
+  
+  return horas
+}
+
+// Componente de visualización de horas
+function HorasVisualizacion({ 
+  horaEntrada, 
+  horaSalida,
+  horasExtra50,
+  horasExtra100
+}: { 
+  horaEntrada: string
+  horaSalida: string
+  horasExtra50: number
+  horasExtra100: number
+}) {
+  const totalHoras = calcularHoras(horaEntrada, horaSalida)
+  const horasNormales = Math.min(8, totalHoras)
+  const horasExcedentes = Math.max(0, totalHoras - 8)
+  const horasArray = generarHorasArray(horaEntrada, horaSalida)
+  
+  // Determinar si hay extras planificadas
+  const tieneExtras = horasExtra50 > 0 || horasExtra100 > 0
+  
+  return (
+    <div className="mt-3 pt-3 border-t border-neutral-100">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] text-neutral-400">
+          {totalHoras}h total
+        </span>
+        {horasExcedentes > 0 && (
+          <span className="text-[10px] text-[#C4322F]">
+            +{horasExcedentes}h extras
+          </span>
+        )}
+      </div>
+      
+      {/* Visualización de cuadraditos */}
+      <div className="flex gap-0.5">
+        {horasArray.map((hora, idx) => {
+          const esNormal = idx < 8
+          const esExtra = idx >= 8
+          
+          return (
+            <div key={idx} className="flex flex-col items-center">
+              <div 
+                className={`w-5 h-5 rounded-sm flex items-center justify-center text-[8px] font-medium ${
+                  esNormal 
+                    ? 'border border-[#C4322F]/30 bg-white text-neutral-400' 
+                    : 'bg-[#C4322F] text-white'
+                }`}
+              >
+                {hora.toString().padStart(2, '0')}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      
+      {/* Leyenda */}
+      <div className="flex items-center gap-3 mt-2 text-[9px] text-neutral-300">
+        <span className="flex items-center gap-1">
+          <span className="w-2.5 h-2.5 border border-[#C4322F]/30 rounded-sm" /> 8h normales
+        </span>
+        {horasExcedentes > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 bg-[#C4322F] rounded-sm" /> {horasExcedentes}h extras
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Obtener estilo por estado
 function getEstadoStyle(estado: string): { text: string; label: string } {
   const e = estado.toLowerCase()
@@ -800,6 +918,16 @@ export default function PlanificacionPage() {
                   <p className="text-[9px] text-neutral-400 mt-1.5">
                     ⚑ Turno nocturno: entrada del día anterior
                   </p>
+                )}
+                
+                {/* Visualización de horas */}
+                {formHoraEntrada && formHoraSalida && (
+                  <HorasVisualizacion 
+                    horaEntrada={formHoraEntrada} 
+                    horaSalida={formHoraSalida}
+                    horasExtra50={formExtra50}
+                    horasExtra100={formExtra100}
+                  />
                 )}
               </div>
               
