@@ -144,22 +144,14 @@ function generarHorasArray(entrada: string, salida: string): number[] {
 // Componente de visualización de horas
 function HorasVisualizacion({ 
   horaEntrada, 
-  horaSalida,
-  horasExtra50,
-  horasExtra100
+  horaSalida
 }: { 
   horaEntrada: string
   horaSalida: string
-  horasExtra50: number
-  horasExtra100: number
 }) {
   const totalHoras = calcularHoras(horaEntrada, horaSalida)
-  const horasNormales = Math.min(8, totalHoras)
   const horasExcedentes = Math.max(0, totalHoras - 8)
   const horasArray = generarHorasArray(horaEntrada, horaSalida)
-  
-  // Determinar si hay extras planificadas
-  const tieneExtras = horasExtra50 > 0 || horasExtra100 > 0
   
   return (
     <div className="mt-3 pt-3 border-t border-neutral-100">
@@ -241,8 +233,6 @@ export default function PlanificacionPage() {
   const [formEstado, setFormEstado] = useState<string>('')
   const [formHoraEntrada, setFormHoraEntrada] = useState<string>('')
   const [formHoraSalida, setFormHoraSalida] = useState<string>('')
-  const [formExtra50, setFormExtra50] = useState<number>(0)
-  const [formExtra100, setFormExtra100] = useState<number>(0)
   
   const popoverRef = useRef<HTMLDivElement>(null)
   
@@ -449,8 +439,6 @@ export default function PlanificacionPage() {
     setFormEstado(jornada?.estado_empleado || '')
     setFormHoraEntrada(jornada?.hora_entrada_asignada || HORARIOS_TURNO[jornada?.turno_asignado || 'M']?.entrada || '06:00')
     setFormHoraSalida(jornada?.hora_salida_asignada || HORARIOS_TURNO[jornada?.turno_asignado || 'M']?.salida || '14:00')
-    setFormExtra50(jornada?.horas_extra_50 || 0)
-    setFormExtra100(jornada?.horas_extra_100 || 0)
   }
   
   // Cambiar turno actualiza horarios
@@ -468,6 +456,14 @@ export default function PlanificacionPage() {
     
     setGuardando(true)
     try {
+      // Calcular horas totales y extras automáticamente
+      let horasTotales = 8
+      let horasExtra = 0
+      if (!formEstado && formHoraEntrada && formHoraSalida) {
+        horasTotales = calcularHoras(formHoraEntrada, formHoraSalida)
+        horasExtra = Math.max(0, horasTotales - 8)
+      }
+      
       const payload = {
         empleado_id: celdaSeleccionada.empleado.id,
         fecha: celdaSeleccionada.fecha,
@@ -475,9 +471,8 @@ export default function PlanificacionPage() {
         estado_empleado: formEstado || null,
         hora_entrada_asignada: formEstado ? null : formHoraEntrada,
         hora_salida_asignada: formEstado ? null : formHoraSalida,
-        horas_extra_50: formExtra50,
-        horas_extra_100: formExtra100,
-        horas_asignadas: formEstado ? 0 : 8, // Default 8 horas
+        horas_extra_planificadas: horasExtra, // Calculado automáticamente del horario
+        horas_asignadas: formEstado ? 0 : horasTotales,
       }
       
       const res = await fetch('/api/sicamar/jornadas', {
@@ -717,7 +712,9 @@ export default function PlanificacionPage() {
                     </td>
                     {fechas.map((fecha) => {
                       const j = jornadas[fecha]
-                      const tieneExtra = j && (j.horas_extra_50 > 0 || j.horas_extra_100 > 0)
+                      // Calcular si tiene horas extra basado en el horario planificado
+                      const tieneExtra = j && j.hora_entrada_asignada && j.hora_salida_asignada && 
+                        calcularHoras(j.hora_entrada_asignada, j.hora_salida_asignada) > 8
                       const isSelected = celdaSeleccionada?.empleado.id === empleado.id && celdaSeleccionada?.fecha === fecha
                       
                       // Determinar qué mostrar
@@ -925,41 +922,8 @@ export default function PlanificacionPage() {
                   <HorasVisualizacion 
                     horaEntrada={formHoraEntrada} 
                     horaSalida={formHoraSalida}
-                    horasExtra50={formExtra50}
-                    horasExtra100={formExtra100}
                   />
                 )}
-              </div>
-              
-              {/* Horas extra */}
-              <div className="mb-4">
-                <label className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1.5 block">
-                  Horas extra
-                </label>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <label className="text-[9px] text-neutral-400 block mb-0.5">50%</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="12"
-                      value={formExtra50}
-                      onChange={(e) => setFormExtra50(parseInt(e.target.value) || 0)}
-                      className="w-full h-8 text-sm border border-neutral-200 rounded px-2 focus:outline-none focus:border-neutral-400"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-[9px] text-neutral-400 block mb-0.5">100%</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="12"
-                      value={formExtra100}
-                      onChange={(e) => setFormExtra100(parseInt(e.target.value) || 0)}
-                      className="w-full h-8 text-sm border border-neutral-200 rounded px-2 focus:outline-none focus:border-neutral-400"
-                    />
-                  </div>
-                </div>
               </div>
             </>
           )}
