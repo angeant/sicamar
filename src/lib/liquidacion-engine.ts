@@ -750,38 +750,3 @@ export function calcularHorasCalorias(horasDiurnas: number, horasNocturnas: numb
   const horasCalorias = Math.round(horasBase * 0.19) // 19% aproximado
   return horasCalorias
 }
-
-// ============ TIPOS Y FUNCIONES ADICIONALES PARA APIs ============
-
-export interface LiquidacionInput {
-  periodo_id: number
-  empleado_ids?: number[]
-  parametros: Record<string, number>
-  valoresCategoria: Record<string, number>
-}
-
-/**
- * Función helper para calcular liquidación (wrapper del engine)
- * TODO: Implementar lógica real cuando se conecte con Supabase
- */
-export async function calcularLiquidacion(
-  _input: LiquidacionInput,
-  empleados: EmpleadoLiquidar[],
-  _novedades: NovedadEmpleado[],
-  _conceptos: ConceptoDefinicion[]
-): Promise<ResultadoLiquidacion[]> {
-  // Stub: devuelve resultados mock
-  return empleados.map(emp => ({
-    empleado_id: emp.id,
-    legajo: emp.legajo,
-    nombre_completo: `${emp.apellido}, ${emp.nombre}`,
-    conceptos: [],
-    totales: {
-      haberes: 0,
-      no_remunerativos: 0,
-      retenciones: 0,
-      contribuciones: 0,
-      neto: 0,
-    },
-  }))
-}

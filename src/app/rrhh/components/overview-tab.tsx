@@ -11,7 +11,7 @@ import {
   Clock,
   TrendingUp
 } from 'lucide-react'
-import { format, addDays, isToday, isTomorrow } from 'date-fns'
+import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 interface EventoEmpleado {
@@ -54,9 +54,10 @@ export function OverviewTab() {
       setEventos(eventosData.eventos || [])
       setTotalEmpleados(empleadosData.empleados?.length || 0)
 
-      // Agrupar estados por tipo
+      // Agrupar estados por tipo - estadosData es el array directamente
+      const estadosArray = Array.isArray(estadosData) ? estadosData : (estadosData.estados || [])
       const estadosAgrupados: Record<string, { count: number; nombre: string; color: string }> = {}
-      for (const est of estadosData || []) {
+      for (const est of estadosArray) {
         const tipo = est.tipo_estado
         if (!estadosAgrupados[tipo]) {
           estadosAgrupados[tipo] = {

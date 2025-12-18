@@ -221,9 +221,10 @@ export function OrganizadorSquadsTab() {
       const calData = await calRes.json()
       const estadosData = await estadosRes.json()
 
-      // Crear mapa de estados por empleado_id
+      // Crear mapa de estados por empleado_id - estadosData es el array directamente
+      const estadosArray = Array.isArray(estadosData) ? estadosData : (estadosData.estados || [])
       const estadosMap = new Map<number, EstadoEmpleado>()
-      for (const est of estadosData || []) {
+      for (const est of estadosArray) {
         estadosMap.set(est.empleado_id, {
           tipo_estado: est.tipo_estado,
           estado_nombre: est.tipos_estado_empleado?.nombre || est.tipo_estado,

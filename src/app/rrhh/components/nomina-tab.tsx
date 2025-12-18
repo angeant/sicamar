@@ -326,9 +326,10 @@ export function NominaTab() {
       }
       setEventos(eventosMap)
       
-      // Mapear estados por empleado_id
+      // Mapear estados por empleado_id - estadosData es el array directamente
+      const estadosArray = Array.isArray(estadosData) ? estadosData : (estadosData.estados || [])
       const estadosMap = new Map<number, EstadoEmpleado>()
-      for (const est of estadosData || []) {
+      for (const est of estadosArray) {
         estadosMap.set(est.empleado_id, est)
       }
       setEstados(estadosMap)

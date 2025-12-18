@@ -15,6 +15,7 @@
     "@signpdf/placeholder-pdf-lib": "^3.2.6",
     "@signpdf/signer-p12": "^3.2.4",
     "@signpdf/signpdf": "^3.2.5",
+    "@supabase/supabase-js": "^2.87.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "core-js": "^3.47.0",

@@ -50,6 +50,7 @@ import { ReciboTab } from './components/recibo-tab'
 import { TurnosRotacionesTab } from './components/turnos-rotaciones-tab'
 import { AsignacionTurnosTab } from './components/asignacion-turnos-tab'
 import { ValidacionJornadasTab } from './components/validacion-jornadas-tab'
+import { JornadasTab } from './components/jornadas-tab'
 import { PlantaLayoutTab } from './components/planta-layout-tab'
 import { InduccionTab } from './components/induccion-tab'
 import { CanjesTab } from './components/canjes-feriados-tab'
@@ -63,8 +64,9 @@ const tabs = [
   { id: 'planta', label: 'Planta', icon: Factory },
   { id: 'turnos', label: 'Rotaciones', icon: RotateCcw },
   // REGISTRO DIARIO
+  { id: 'jornadas', label: 'Jornadas', icon: CalendarClock },
   { id: 'marcaciones', label: 'Marcaciones', icon: Fingerprint },
-  { id: 'validacion', label: 'Validar Jornadas', icon: CheckCircle2 },
+  { id: 'validacion', label: 'Validar', icon: CheckCircle2 },
   { id: 'asistencia', label: 'Asistencia', icon: Clock },
   { id: 'novedades', label: 'Novedades', icon: FileText },
   // EVENTOS
@@ -181,6 +183,7 @@ export default function SicamarRRHHPage() {
         {activeTab === 'nomina' && <NominaTab />}
         {activeTab === 'planta' && <PlantaLayoutTab />}
         {activeTab === 'turnos' && <TurnosRotacionesTab />}
+        {activeTab === 'jornadas' && <JornadasTab />}
         {activeTab === 'marcaciones' && <MarcacionesTab />}
         {activeTab === 'validacion' && <ValidacionJornadasTab />}
         {activeTab === 'asistencia' && <AsistenciaTab />}

@@ -1,4 +1,4 @@
-import { supabaseServer } from '@/lib/supabase-server'
+import { supabaseSicamar } from '@/lib/supabase-server'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function PATCH(
@@ -9,15 +9,26 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
 
-    const { data, error } = await supabaseServer.rpc('update_empleado_sicamar', {
-      p_id: parseInt(id),
-      p_legajo: body.legajo || null,
-      p_dni: body.dni || null,
-      p_nombre: body.nombre || null,
-      p_apellido: body.apellido || null,
-      p_estado_laboral: body.estado_laboral || null,
-      p_activo: body.activo !== undefined ? body.activo : null,
-    })
+    // Construir objeto de actualización solo con campos definidos
+    const updateData: Record<string, unknown> = {}
+    
+    if (body.legajo !== undefined) updateData.legajo = body.legajo
+    if (body.dni !== undefined) updateData.dni = body.dni
+    if (body.nombre !== undefined) updateData.nombre = body.nombre
+    if (body.apellido !== undefined) updateData.apellido = body.apellido
+    if (body.activo !== undefined) updateData.activo = body.activo
+    if (body.fecha_egreso !== undefined) updateData.fecha_egreso = body.fecha_egreso
+    if (body.fecha_ingreso !== undefined) updateData.fecha_ingreso = body.fecha_ingreso
+    if (body.sector !== undefined) updateData.sector = body.sector
+    if (body.categoria !== undefined) updateData.categoria = body.categoria
+    if (body.cargo !== undefined) updateData.cargo = body.cargo
+
+    const { data, error } = await supabaseSicamar
+      .from('empleados')
+      .update(updateData)
+      .eq('id', parseInt(id))
+      .select()
+      .single()
 
     if (error) {
       console.error('Error updating empleado:', error)
@@ -39,8 +50,8 @@ export async function GET(
   try {
     const { id } = await params
 
-    const { data, error } = await supabaseServer
-      .from('sicamar_empleados')
+    const { data, error } = await supabaseSicamar
+      .from('empleados')
       .select('*')
       .eq('id', parseInt(id))
       .single()

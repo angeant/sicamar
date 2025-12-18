@@ -668,6 +668,127 @@ export function NuevaLiquidacion() {
                   {/* Detalle expandido */}
                   {expandedEmpleado === emp.legajo && (
                     <div className="px-4 pb-4 bg-gray-50">
+                      {/* Calendario de asistencias */}
+                      {emp.asistencias && emp.asistencias.length > 0 && (
+                        <div className="mb-4 p-3 bg-white rounded border border-gray-200">
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Asistencias de la quincena</span>
+                            <div className="flex items-center gap-3 text-xs text-gray-500">
+                              <span>{emp.asistencias.length} días</span>
+                              <span className="font-medium text-gray-700">{emp.asistencias.reduce((sum: number, a: { horas: number }) => sum + a.horas, 0).toFixed(1)} hs totales</span>
+                            </div>
+                          </div>
+                          
+                          {/* Grilla de días con horarios */}
+                          <div className="grid grid-cols-8 gap-1 text-xs">
+                            {/* Headers */}
+                            <div className="text-gray-400 font-medium text-center">Día</div>
+                            <div className="text-gray-400 font-medium text-center col-span-2">Entrada</div>
+                            <div className="text-gray-400 font-medium text-center col-span-2">Salida</div>
+                            <div className="text-gray-400 font-medium text-center">Hs</div>
+                            <div className="text-gray-400 font-medium text-center col-span-2">Turno</div>
+                            
+                            {(() => {
+                              // Determinar días del período (1-15 o 16-último)
+                              const esPrimeraQuincena = resultado?.periodo.tipo === 'PQN'
+                              const diaInicio = esPrimeraQuincena ? 1 : 16
+                              const diaFin = esPrimeraQuincena ? 15 : new Date(resultado?.periodo.anio || 2025, resultado?.periodo.mes || 12, 0).getDate()
+                              
+                              interface AsistenciaCompleta {
+                                dia: number
+                                diaSemana?: string
+                                turno: string
+                                horas: number
+                                horaEntrada?: string
+                                horaSalida?: string
+                                feriado?: boolean
+                              }
+                              
+                              const asistenciasMap = new Map<number, AsistenciaCompleta>()
+                              emp.asistencias.forEach((a: AsistenciaCompleta) => {
+                                asistenciasMap.set(a.dia, a)
+                              })
+                              
+                              const DIAS = ['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa']
+                              const filas = []
+                              
+                              for (let d = diaInicio; d <= diaFin; d++) {
+                                const asist = asistenciasMap.get(d)
+                                const fecha = new Date(resultado?.periodo.anio || 2025, (resultado?.periodo.mes || 12) - 1, d)
+                                const diaSemana = asist?.diaSemana || DIAS[fecha.getDay()]
+                                const esDomingo = fecha.getDay() === 0
+                                
+                                if (esDomingo) {
+                                  // Fila de domingo (gris, sin datos)
+                                  filas.push(
+                                    <div key={d} className="contents">
+                                      <div className="text-center py-0.5 text-gray-300 bg-gray-50 rounded-l">{diaSemana} {d}</div>
+                                      <div className="text-center py-0.5 text-gray-300 bg-gray-50 col-span-2">-</div>
+                                      <div className="text-center py-0.5 text-gray-300 bg-gray-50 col-span-2">-</div>
+                                      <div className="text-center py-0.5 text-gray-300 bg-gray-50">-</div>
+                                      <div className="text-center py-0.5 text-gray-300 bg-gray-50 rounded-r col-span-2 italic">Domingo</div>
+                                    </div>
+                                  )
+                                } else if (asist) {
+                                  // Día con asistencia
+                                  const turnoColor = asist.feriado 
+                                    ? 'bg-amber-100 text-amber-700' 
+                                    : asist.turno === 'N' 
+                                      ? 'bg-indigo-100 text-indigo-700' 
+                                      : asist.turno === 'V'
+                                        ? 'bg-purple-100 text-purple-700'
+                                        : 'bg-green-100 text-green-700'
+                                  
+                                  const turnoNombre = asist.feriado 
+                                    ? 'Feriado' 
+                                    : asist.turno === 'D' ? 'Mañana' 
+                                    : asist.turno === 'N' ? 'Noche' 
+                                    : 'Tarde'
+                                  
+                                  filas.push(
+                                    <div key={d} className="contents">
+                                      <div className={`text-center py-0.5 font-medium ${turnoColor} rounded-l`}>{diaSemana} {d}</div>
+                                      <div className={`text-center py-0.5 font-mono ${turnoColor} col-span-2`}>{asist.horaEntrada || '-'}</div>
+                                      <div className={`text-center py-0.5 font-mono ${turnoColor} col-span-2`}>{asist.horaSalida || '-'}</div>
+                                      <div className={`text-center py-0.5 font-mono font-medium ${turnoColor}`}>{asist.horas}</div>
+                                      <div className={`text-center py-0.5 ${turnoColor} rounded-r col-span-2`}>{turnoNombre}</div>
+                                    </div>
+                                  )
+                                } else {
+                                  // Día sin fichaje
+                                  filas.push(
+                                    <div key={d} className="contents">
+                                      <div className="text-center py-0.5 text-gray-400 border border-dashed border-gray-200 rounded-l">{diaSemana} {d}</div>
+                                      <div className="text-center py-0.5 text-gray-300 border-t border-b border-dashed border-gray-200 col-span-2">-</div>
+                                      <div className="text-center py-0.5 text-gray-300 border-t border-b border-dashed border-gray-200 col-span-2">-</div>
+                                      <div className="text-center py-0.5 text-gray-300 border-t border-b border-dashed border-gray-200">0</div>
+                                      <div className="text-center py-0.5 text-red-400 border border-dashed border-gray-200 rounded-r col-span-2 italic">Sin fichaje</div>
+                                    </div>
+                                  )
+                                }
+                              }
+                              return filas
+                            })()}
+                          </div>
+                          
+                          {/* Leyenda compacta */}
+                          <div className="flex gap-4 mt-3 pt-2 border-t border-gray-100 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-green-500"></span> Mañana (04-12h)
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-purple-500"></span> Tarde (12-20h)
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Noche (20-04h)
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-amber-500"></span> Feriado
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-xs text-gray-500 uppercase border-b border-gray-200">
