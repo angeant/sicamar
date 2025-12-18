@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useAuth, useUser, SignInButton } from '@clerk/nextjs'
+import PlanningChat from './components/planning-chat'
 
 interface Empleado {
   id: number
@@ -582,10 +583,12 @@ export default function PlanificacionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header ultra minimalista */}
-      <header className="border-b border-neutral-100">
-        <div className="max-w-[1800px] mx-auto px-8 py-6 flex items-center justify-between">
+    <div className="h-screen flex overflow-hidden">
+      {/* Contenido principal */}
+      <div className="flex-1 flex flex-col min-w-0 bg-white overflow-hidden">
+        {/* Header ultra minimalista */}
+        <header className="flex-shrink-0 border-b border-neutral-100">
+          <div className="px-8 py-6 flex items-center justify-between">
           <div>
             <p className="text-xs font-medium text-[#C4322F] tracking-[0.3em] uppercase mb-1">
               Sicamar
@@ -639,8 +642,8 @@ export default function PlanificacionPage() {
         </div>
       </header>
       
-      {/* Tabla de planificación */}
-      <div className="max-w-[1800px] mx-auto px-8 py-6">
+        {/* Tabla de planificación */}
+        <div className="flex-1 overflow-auto px-8 py-6">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -958,14 +961,14 @@ export default function PlanificacionPage() {
         </div>
       )}
       
-      {/* Footer */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2">
-        <img 
-          src="/kalia_logo_black.svg" 
-          alt="Kalia" 
-          className="h-4 opacity-10 hover:opacity-30 transition-opacity cursor-pointer"
-        />
+      {/* Popover cierra aquí, el contenido principal cierra antes del chat */}
       </div>
+      
+      {/* Chat de planificación - siempre visible a la derecha */}
+      <PlanningChat 
+        fechasSemana={fechas} 
+        onJornadaUpdated={cargarDatos}
+      />
     </div>
   )
 }
