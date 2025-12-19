@@ -7,7 +7,13 @@ const SUPER_ADMIN_EMAILS = [
   'uguareschi@gmail.com',
 ]
 
-// IDs de usuarios con acceso a Sicamar (hardcoded para ahora)
+// Emails con acceso a Sicamar
+const SICAMAR_EMAILS = [
+  'rreale@sicamar.com.ar',
+  'sicamarmetalessa@gmail.com',
+]
+
+// IDs de usuarios con acceso a Sicamar (fallback)
 const SICAMAR_USER_IDS = [
   '62f9915b-45b9-425e-a28f-045be9575886', // rreale@sicamar.com.ar
   '2b3c7fb8-a31d-4213-9b02-109efbfe02ae', // sicamarmetalessa@gmail.com
@@ -32,7 +38,16 @@ export async function GET(request: NextRequest) {
       })
     }
     
-    // Verificar contra lista hardcoded de Sicamar
+    // Verificar por email primero (más confiable que userId)
+    if (email && SICAMAR_EMAILS.includes(email.toLowerCase())) {
+      return NextResponse.json({ 
+        isMember: true, 
+        role: 'member',
+        source: 'email' 
+      })
+    }
+    
+    // Fallback: verificar contra lista de IDs
     const isMember = SICAMAR_USER_IDS.includes(userId)
     
     // También intentar verificar en la base de datos
