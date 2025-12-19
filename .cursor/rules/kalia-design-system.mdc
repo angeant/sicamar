@@ -1,0 +1,130 @@
+---
+description: Sistema de diseño Kalia para Sicamar. Aplicar SIEMPRE en componentes React, estilos, páginas y UI.
+alwaysApply: true
+---
+
+# Kalia Design System - Sicamar
+
+## Estética
+Compacta. Densa. Profesional. Estilo dashboard enterprise/ERP.
+Sin tarjetas de KPIs gigantes. Información útil, no decorativa.
+Minimalista y clean. Sin iconos decorativos (solo funcionales cuando sea estrictamente necesario).
+
+## Principios
+1. **Densidad sobre espaciado** - Maximizar información visible
+2. **Tablas como protagonistas** - Los datos se muestran en tablas, no en cards
+3. **Sin KPIs gigantes** - Si hay métricas, mostrarlas inline o en badges pequeños
+4. **Tipografía compacta** - text-sm como base, text-xs para secundarios
+5. **Headers mínimos** - Sin descripciones largas, títulos directos
+6. **Un solo color de acento** - Rojo Sicamar para todo lo que necesite destacar
+
+## Colores
+
+### Color Accent (Cliente: Sicamar)
+| Token | Valor | Uso |
+|-------|-------|-----|
+| Primary | `#C4322F` | Badges activos, acciones principales |
+| Primary hover | `#A02A2A` | Estados hover |
+
+### Escala de grises (Base)
+| Token | Valor | Tailwind | Uso |
+|-------|-------|----------|-----|
+| Background | `#FFFFFF` | white | Fondo principal |
+| Surface | `#FAFAFA` | neutral-50 | Headers de tabla |
+| Border | `#E5E5E5` | neutral-200 | Bordes |
+| Text primary | `#171717` | neutral-900 | Texto principal |
+| Text secondary | `#525252` | neutral-600 | Texto secundario |
+| Text muted | `#A3A3A3` | neutral-400 | Texto apagado |
+
+### Navbar
+- Background: `#18181B` (zinc-900) o `#FFFFFF` con border
+- Text: según fondo
+
+## Tipografía
+| Elemento | Clase | Tamaño |
+|----------|-------|--------|
+| Font family | Geist Sans | - |
+| Base (default) | `text-sm` | 14px |
+| Headers de página | `text-lg font-medium` | 18px |
+| Headers de sección | `text-xs uppercase tracking-wide text-neutral-500` | 12px |
+| Celdas de tabla | `text-sm` | 14px |
+| Labels | `text-xs font-medium` | 12px |
+
+## Componentes
+
+### Page Layout
+```
+bg-white min-h-screen
+```
+
+### Page Header
+```
+px-4 py-3 border-b border-neutral-200
+Título: text-lg font-medium
+Sin descripción debajo del título
+```
+
+### Inputs
+```
+h-8 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 rounded
+```
+
+### Buttons
+| Variante | Clases |
+|----------|--------|
+| Primary | `h-8 px-3 text-sm bg-neutral-900 hover:bg-neutral-800 text-white rounded` |
+| Accent | `h-8 px-3 text-sm bg-[#C4322F] hover:bg-[#A02A2A] text-white rounded` |
+| Secondary | `h-8 px-3 text-sm border border-neutral-200 hover:bg-neutral-50 rounded` |
+| Ghost | `h-8 px-3 text-sm hover:bg-neutral-100 rounded` |
+
+### Tablas (protagonistas)
+```
+w-full text-sm
+Header: bg-neutral-50 text-xs font-medium text-neutral-500 uppercase tracking-wide
+Celdas: px-3 py-2 (compactas)
+Borders: border-b border-neutral-100
+Hover: hover:bg-neutral-50
+```
+
+### Badges de estado
+| Estado | Clases |
+|--------|--------|
+| Base | `text-xs px-1.5 py-0.5 rounded font-medium` |
+| Success | `bg-green-50 text-green-700` |
+| Warning | `bg-amber-50 text-amber-700` |
+| Error | `bg-red-50 text-red-700` |
+| Info | `bg-blue-50 text-blue-700` |
+| Default | `bg-neutral-100 text-neutral-600` |
+| Accent | `bg-[#C4322F]/10 text-[#C4322F]` |
+
+### Navbar
+- Height: `h-12` o `h-16`
+- Background: `bg-white` con border-b
+- Tabs: `text-sm`
+- Padding: `px-4`
+
+## Espaciado (compacto)
+| Contexto | Valor |
+|----------|-------|
+| Page padding | `px-4 py-4` |
+| Entre secciones | `mt-4` o `mt-6` |
+| Padding interno cards | `p-3` |
+| Gap en grids | `gap-3` |
+
+## Layout de páginas
+1. Header con título y acción (si hay) en la misma línea
+2. Filtros inline (si hay)
+3. Tabla principal ocupando el ancho completo
+4. Sin tarjetas de stats arriba - si hay métricas, mostrar como badges o inline
+
+## Reglas estrictas - PROHIBIDO
+| ❌ NUNCA usar | ✅ Usar en su lugar |
+|---------------|---------------------|
+| `text-2xl`, `text-3xl` para títulos | `text-lg font-medium` |
+| Cards de KPIs/Stats grandes | Badges inline o texto |
+| `p-6`, `p-8` | Máximo `p-4` |
+| `mt-8`, `mt-12` | Máximo `mt-6` |
+| Cards para listar datos | Tablas |
+| Badges grandes | Badges pequeños (`text-xs px-1.5 py-0.5`) |
+| Fondo gris (`bg-gray-100`) | Fondo blanco (`bg-white`) |
+| Iconos decorativos | Solo iconos funcionales (cuando sea estrictamente necesario) |

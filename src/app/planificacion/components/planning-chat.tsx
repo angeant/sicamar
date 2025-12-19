@@ -21,6 +21,21 @@ interface PlanningChatProps {
   onJornadaUpdated?: () => void
 }
 
+// Helper para obtener/crear session ID persistente
+function getSessionId(): string {
+  if (typeof window === 'undefined') return ''
+  
+  const key = 'sicamar_chat_session_id'
+  let sessionId = localStorage.getItem(key)
+  
+  if (!sessionId) {
+    sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    localStorage.setItem(key, sessionId)
+  }
+  
+  return sessionId
+}
+
 // Componente para mostrar una tool call expandible
 function ToolCallItem({ tool, isLast }: { tool: ToolCall; isLast: boolean }) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -127,8 +142,15 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
   const [isLoading, setIsLoading] = useState(false)
   const [currentThinking, setCurrentThinking] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const sessionIdRef = useRef<string>('')
+  
+  // Inicializar session ID
+  useEffect(() => {
+    sessionIdRef.current = getSessionId()
+  }, [])
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -162,7 +184,9 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
             role: m.role,
             content: m.content
           })),
-          context: { fechasSemana }
+          context: { fechasSemana },
+          conversation_id: conversationId,
+          session_id: sessionIdRef.current,
         })
       })
       
@@ -202,16 +226,19 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
             try {
               const parsed = JSON.parse(data)
               
-              if (parsed.type === 'thinking') {
+              if (parsed.type === 'thinking_start') {
+                // Iniciar bloque de thinking
+                setCurrentThinking('')
+              } else if (parsed.type === 'thinking') {
                 // Acumular thinking en el mensaje
                 assistantMessage = {
                   ...assistantMessage,
-                  thinking: (assistantMessage.thinking || '') + parsed.content
+                  thinking: (assistantMessage.thinking || '') + (parsed.content || '')
                 }
                 setMessages(prev => prev.map(m => 
                   m.id === assistantMessage.id ? assistantMessage : m
                 ))
-                setCurrentThinking(assistantMessage.thinking || null)
+                setCurrentThinking(assistantMessage.thinking || '')
               } else if (parsed.type === 'text') {
                 assistantMessage = {
                   ...assistantMessage,
@@ -248,6 +275,9 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
                     onJornadaUpdated?.()
                   }
                 }
+              } else if (parsed.type === 'conversation_id') {
+                // Guardar el ID de conversación para mantener persistencia
+                setConversationId(parsed.id)
               } else if (parsed.type === 'error') {
                 setErrorMessage(parsed.message)
               }

@@ -1,0 +1,114 @@
+---
+description: Convenciones para API Routes de Sicamar. Aplicar cuando se trabaje con archivos en /api/sicamar/
+alwaysApply: false
+---
+
+# API Routes - Sicamar
+
+## Estructura de archivos
+```
+/api/sicamar/[recurso]/route.ts
+```
+
+## Rutas principales
+| Ruta | Descripción |
+|------|-------------|
+| `/api/sicamar/empleados` | CRUD de empleados |
+| `/api/sicamar/turnos/bloques` | Gestión de bloques |
+| `/api/sicamar/marcaciones` | Consulta de marcaciones |
+| `/api/sicamar/liquidaciones` | Gestión de liquidaciones |
+
+## Formato de respuesta
+
+### Success
+```typescript
+return Response.json({ 
+  success: true, 
+  data: [...], 
+  count?: number 
+})
+```
+
+### Error
+```typescript
+return Response.json({ 
+  success: false, 
+  error: string, 
+  code?: string 
+}, { status: 400 | 500 })
+```
+
+## Template de route handler
+```typescript
+import { createClient } from '@/lib/supabase-server'
+import { NextRequest } from 'next/server'
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+    const searchParams = request.nextUrl.searchParams
+    
+    // Siempre usar schema sicamar
+    const { data, error } = await supabase
+      .schema('sicamar')
+      .from('tabla')
+      .select('*')
+    
+    if (error) throw error
+    
+    return Response.json({ success: true, data })
+  } catch (error) {
+    console.error('Error:', error)
+    return Response.json(
+      { success: false, error: error instanceof Error ? error.message : 'Error desconocido' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = await createClient()
+    const body = await request.json()
+    
+    const { data, error } = await supabase
+      .schema('sicamar')
+      .from('tabla')
+      .insert(body)
+      .select()
+      .single()
+    
+    if (error) throw error
+    
+    return Response.json({ success: true, data })
+  } catch (error) {
+    console.error('Error:', error)
+    return Response.json(
+      { success: false, error: error instanceof Error ? error.message : 'Error desconocido' },
+      { status: 500 }
+    )
+  }
+}
+```
+
+## Autenticación
+- Clerk para auth (OTP por email, sin password)
+- Middleware protege rutas `/rrhh/*`
+- Session disponible via `auth()` en server components
+
+```typescript
+import { auth } from '@clerk/nextjs/server'
+
+export async function GET() {
+  const { userId } = await auth()
+  
+  if (!userId) {
+    return Response.json(
+      { success: false, error: 'No autorizado' },
+      { status: 401 }
+    )
+  }
+  
+  // ... resto del código
+}
+```

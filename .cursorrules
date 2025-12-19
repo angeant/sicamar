@@ -1,188 +1,25 @@
-# Kalia Design System - Sicamar
+# Sicamar - Cursor Rules
 
-## Estética
-Compacta. Densa. Profesional. Estilo dashboard enterprise/ERP.
-Sin tarjetas de KPIs gigantes. Información útil, no decorativa.
-Minimalista y clean. Sin iconos decorativos (solo funcionales cuando sea estrictamente necesario).
+Las reglas del proyecto están organizadas en archivos `.mdc` en la carpeta `.cursor/rules/`:
 
-## Principios
-1. **Densidad sobre espaciado** - Maximizar información visible
-2. **Tablas como protagonistas** - Los datos se muestran en tablas, no en cards
-3. **Sin KPIs gigantes** - Si hay métricas, mostrarlas inline o en badges pequeños
-4. **Tipografía compacta** - text-sm como base, text-xs para secundarios
-5. **Headers mínimos** - Sin descripciones largas, títulos directos
-6. **Un solo color de acento** - Rojo Sicamar para todo lo que necesite destacar
+| Archivo | Descripción | Auto-apply |
+|---------|-------------|------------|
+| `kalia-design-system.mdc` | Design system, colores, tipografía, componentes UI | ✅ Siempre |
+| `supabase-sicamar.mdc` | Base de datos, schema sicamar, queries | ✅ Siempre |
+| `api-routes.mdc` | Convenciones para API routes | Solo en `/api/` |
+| `prompt-engineering.mdc` | Guía de prompts para agentes AI | Solo prompts |
 
-## Colores
+## Quick Reference
 
-### Color Accent (Cliente: Sicamar)
-- Primary: `#C4322F` (rojo Sicamar) - Solo para badges de estado activo y acciones principales
-- Primary hover: `#A02A2A` (rojo oscuro)
+### Colores clave
+- **Accent (rojo Sicamar)**: `#C4322F`
+- **Fondo**: `#FFFFFF` (blanco)
+- **Texto**: `#171717` (neutral-900)
 
-### Escala de grises (Base)
-- Background: `#FFFFFF` (white) - Fondo principal blanco
-- Surface: `#FAFAFA` (neutral-50) - Para headers de tabla
-- Border: `#E5E5E5` (neutral-200)
-- Text primary: `#171717` (neutral-900)
-- Text secondary: `#525252` (neutral-600)
-- Text muted: `#A3A3A3` (neutral-400)
+### Database
+- Schema: `sicamar`
+- Siempre usar: `.schema('sicamar').from('tabla')`
 
-### Navbar
-- Background: `#18181B` (zinc-900) o `#FFFFFF` con border
-- Text: según fondo
-
-## Tipografía
-- Font: Geist Sans
-- **Base: text-sm** (14px) - NO text-base
-- Headers de página: text-lg font-medium (no text-2xl)
-- Headers de sección: text-xs uppercase tracking-wide text-neutral-500
-- Celdas de tabla: text-sm
-- Labels: text-xs font-medium
-
-## Componentes
-
-### Page Layout
-```
-bg-white min-h-screen
-```
-
-### Page Header
-```
-px-4 py-3 border-b border-neutral-200
-Título: text-lg font-medium
-Sin descripción debajo del título
-```
-
-### Inputs
-```
-h-8 text-sm border-neutral-200 focus:border-neutral-400 focus:ring-0 rounded
-```
-
-### Buttons
-- Primary: `h-8 px-3 text-sm bg-neutral-900 hover:bg-neutral-800 text-white rounded`
-- Accent: `h-8 px-3 text-sm bg-[#C4322F] hover:bg-[#A02A2A] text-white rounded`
-- Secondary: `h-8 px-3 text-sm border border-neutral-200 hover:bg-neutral-50 rounded`
-- Ghost: `h-8 px-3 text-sm hover:bg-neutral-100 rounded`
-
-### Tablas (protagonistas)
-```
-w-full text-sm
-Header: bg-neutral-50 text-xs font-medium text-neutral-500 uppercase tracking-wide
-Celdas: px-3 py-2 (compactas)
-Borders: border-b border-neutral-100
-Hover: hover:bg-neutral-50
-```
-
-### Badges de estado
-```
-text-xs px-1.5 py-0.5 rounded font-medium
-- success: bg-green-50 text-green-700
-- warning: bg-amber-50 text-amber-700  
-- error: bg-red-50 text-red-700
-- info: bg-blue-50 text-blue-700
-- default: bg-neutral-100 text-neutral-600
-- accent: bg-[#C4322F]/10 text-[#C4322F]
-```
-
-### Navbar
-- Height: `h-12` o `h-16`
-- Background: `bg-white` con border-b
-- Tabs: `text-sm`
-- Padding: `px-4`
-
-## Espaciado (compacto)
-- Page padding: `px-4 py-4`
-- Entre secciones: `mt-4` o `mt-6`
-- Padding interno cards: `p-3`
-- Gap en grids: `gap-3`
-
-## Layout de páginas
-1. Header con título y acción (si hay) en la misma línea
-2. Filtros inline (si hay)
-3. Tabla principal ocupando el ancho completo
-4. Sin tarjetas de stats arriba - si hay métricas, mostrar como badges o inline
-
-## Reglas estrictas
-1. **NO usar text-2xl o text-3xl** para títulos
-2. **NO usar cards de KPIs/Stats grandes**
-3. **NO usar p-6 o p-8** - máximo p-4
-4. **NO usar mt-8 o mt-12** - máximo mt-6
-5. Preferir tablas sobre cards para listar datos
-6. Badges pequeños, no grandes
-7. Fondo blanco, no gris
-8. **Sin iconos decorativos** - solo funcionales cuando sea estrictamente necesario
-
----
-
-## Base de Datos Supabase
-
-### Schema
-- **Todas las tablas están en el schema `sicamar`**
-- Usar siempre `sicamar.nombre_tabla` en queries SQL directas
-
-### Acceso desde API
-Para queries desde el cliente de Supabase:
-
-```typescript
-// ✅ CORRECTO - Especificar schema
-const { data } = await supabase
-  .schema('sicamar')
-  .from('empleados')
-  .select('*')
-
-// ✅ CORRECTO - Query SQL directa
-const { data } = await supabase.rpc('execute_sql', {
-  query: 'SELECT * FROM sicamar.empleados WHERE activo = true'
-})
-
-// ❌ INCORRECTO - No especificar schema
-const { data } = await supabase.from('empleados').select('*')
-```
-
-### Convención de nombres
-- Tablas en snake_case: `empleados`, `turnos_asignaciones`, `jornadas_validadas`
-- Columnas en snake_case: `fecha_ingreso`, `turno_fijo_id`
-- Foreign keys: `{tabla_singular}_id` (ej: `empleado_id`, `bloque_id`)
-
-### Tablas principales (schema sicamar)
-- `empleados` - Nómina de empleados
-- `turnos` - Definición de turnos
-- `bloques_rotacion` - Bloques de rotación de turnos
-- `turnos_asignaciones` - Asignación empleado-bloque
-- `marcaciones` - Registros biométricos
-- `jornadas` - Jornadas calculadas
-- `novedades` - Novedades de RRHH
-- `liquidaciones` - Períodos de liquidación
-- `liquidaciones_conceptos` - Detalle de conceptos por liquidación
-
----
-
-## API Routes
-
-### Estructura
-```
-/api/sicamar/[recurso]/route.ts
-```
-
-### Ejemplos
-- `/api/sicamar/empleados` - CRUD de empleados
-- `/api/sicamar/turnos/bloques` - Gestión de bloques
-- `/api/sicamar/marcaciones` - Consulta de marcaciones
-- `/api/sicamar/liquidaciones` - Gestión de liquidaciones
-
-### Response format
-```typescript
-// Success
-{ success: true, data: [...], count?: number }
-
-// Error
-{ success: false, error: string, code?: string }
-```
-
----
-
-## Autenticación
-- Clerk para auth (OTP por email, sin password)
-- Middleware protege rutas `/rrhh/*`
-- Session disponible via `auth()` en server components
-
+### Tipografía
+- Base: `text-sm` (14px)
+- Títulos: `text-lg font-medium`

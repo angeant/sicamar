@@ -1,0 +1,93 @@
+---
+description: Configuración de base de datos Supabase para Sicamar. Aplicar SIEMPRE en queries SQL, API routes y acceso a datos.
+alwaysApply: true
+---
+
+# Base de Datos Supabase - Sicamar
+
+## Schema
+- **Todas las tablas están en el schema `sicamar`**
+- Usar siempre `sicamar.nombre_tabla` en queries SQL directas
+
+## Acceso desde API
+
+### Con cliente Supabase (TypeScript)
+```typescript
+// ✅ CORRECTO - Especificar schema
+const { data } = await supabase
+  .schema('sicamar')
+  .from('empleados')
+  .select('*')
+
+// ✅ CORRECTO - Query SQL directa
+const { data } = await supabase.rpc('execute_sql', {
+  query: 'SELECT * FROM sicamar.empleados WHERE activo = true'
+})
+
+// ❌ INCORRECTO - No especificar schema (usará public por defecto)
+const { data } = await supabase.from('empleados').select('*')
+```
+
+### En SQL directo
+```sql
+-- ✅ CORRECTO
+SELECT * FROM sicamar.empleados WHERE activo = true;
+INSERT INTO sicamar.marcaciones (empleado_id, fecha, hora) VALUES (...);
+
+-- ❌ INCORRECTO
+SELECT * FROM empleados WHERE activo = true;
+```
+
+## Convención de nombres
+| Tipo | Formato | Ejemplo |
+|------|---------|---------|
+| Tablas | snake_case | `empleados`, `turnos_asignaciones` |
+| Columnas | snake_case | `fecha_ingreso`, `turno_fijo_id` |
+| Foreign keys | `{tabla_singular}_id` | `empleado_id`, `bloque_id` |
+
+## Tablas principales (schema sicamar)
+
+| Tabla | Descripción |
+|-------|-------------|
+| `empleados` | Nómina de empleados |
+| `turnos` | Definición de turnos |
+| `bloques_rotacion` | Bloques de rotación de turnos |
+| `turnos_asignaciones` | Asignación empleado-bloque |
+| `marcaciones` | Registros biométricos |
+| `jornadas` | Jornadas calculadas |
+| `novedades` | Novedades de RRHH |
+| `liquidaciones` | Períodos de liquidación |
+| `liquidaciones_conceptos` | Detalle de conceptos por liquidación |
+
+## Ejemplo completo de query
+```typescript
+import { createClient } from '@/lib/supabase-server'
+
+export async function GET() {
+  const supabase = await createClient()
+  
+  const { data, error } = await supabase
+    .schema('sicamar')
+    .from('empleados')
+    .select(`
+      id,
+      nombre,
+      apellido,
+      legajo,
+      turnos_asignaciones (
+        bloque:bloques_rotacion (
+          nombre,
+          turno:turnos (codigo, descripcion)
+        )
+      )
+    `)
+    .eq('activo', true)
+    .order('apellido')
+  
+  if (error) {
+    return Response.json({ success: false, error: error.message }, { status: 500 })
+  }
+  
+  return Response.json({ success: true, data })
+}
+```

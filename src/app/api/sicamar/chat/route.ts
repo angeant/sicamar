@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { betaTool } from '@anthropic-ai/sdk/helpers/beta/json-schema'
 import * as jose from 'jose'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
 
-// Generar JWT para el MCP
+// ============================================================================
+// MCP CLIENT
+// ============================================================================
+
 async function generateMcpToken(): Promise<string> {
   const secret = process.env.JWT_SECRET
   if (!secret) throw new Error('JWT_SECRET not configured')
@@ -29,13 +31,11 @@ async function generateMcpToken(): Promise<string> {
   return token
 }
 
-// Cliente MCP singleton para reusar conexión
 let mcpClient: Client | null = null
 let mcpConnecting: Promise<Client> | null = null
 
 async function getMcpClient(): Promise<Client> {
   if (mcpClient) return mcpClient
-  
   if (mcpConnecting) return mcpConnecting
   
   mcpConnecting = (async () => {
@@ -43,23 +43,12 @@ async function getMcpClient(): Promise<Client> {
     if (!baseUrl) throw new Error('MCP_BASE_URL not configured')
     
     const token = await generateMcpToken()
-    
     const transport = new SSEClientTransport(
       new URL(`${baseUrl}/sse`),
-      {
-        requestInit: {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      }
+      { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
     )
     
-    const client = new Client({ 
-      name: 'sicamar-planificacion', 
-      version: '1.0.0' 
-    })
-    
+    const client = new Client({ name: 'sicamar-planificacion', version: '1.0.0' })
     await client.connect(transport)
     mcpClient = client
     return client
@@ -68,168 +57,260 @@ async function getMcpClient(): Promise<Client> {
   return mcpConnecting
 }
 
-// Ejecutar tool via MCP
 async function callMcpTool(mcpToolName: string, input: Record<string, unknown>): Promise<string> {
   try {
     const client = await getMcpClient()
+    const result = await client.callTool({ name: mcpToolName, arguments: input })
     
-    const result = await client.callTool({
-      name: mcpToolName,
-      arguments: input
-    })
-    
-    // El resultado viene en content
     if (result.content && Array.isArray(result.content)) {
       const textContent = result.content.find((c: { type: string }) => c.type === 'text')
       if (textContent && 'text' in textContent) {
         return textContent.text as string
       }
     }
-    
     return JSON.stringify(result)
   } catch (error) {
     console.error('MCP tool error:', error)
     mcpClient = null
     mcpConnecting = null
-    return JSON.stringify({ 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Error calling MCP tool' 
-    })
+    return JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error calling MCP tool' })
   }
 }
 
-// System prompt para el agente de planificación
-const SYSTEM_PROMPT = `Sos un asistente de planificación de turnos para Sicamar. Tu rol es ayudar a gestionar la asignación de jornadas de los empleados jornalizados.
+// ============================================================================
+// SYSTEM PROMPT - Contexto completo de Sicamar
+// ============================================================================
 
-CONTEXTO:
-- Sicamar es una empresa pesquera argentina
-- Turnos: mañana (06:00-14:00), tarde (14:00-22:00), noche (22:00-06:00)
-- Estados de ausencia: vacaciones, enfermedad, accidente, suspendido, licencia, art, falta
-- Cada jornada tiene 8 horas normales, lo que exceda son horas extra
+const SYSTEM_PROMPT = `<identity>
+Sos el asistente de planificación de turnos de Sicamar, una fundición de metales en Argentina.
+Tu rol es ayudar a Rocío (RRHH) a gestionar la planificación semanal de jornadas.
+</identity>
 
-INSTRUCCIONES:
-- Sé conciso y directo
-- Cuando mencionen un empleado por nombre, PRIMERO usá sicamar_empleados_buscar para obtener el legajo
-- NO preguntes el legajo si podés buscarlo por nombre
-- Para asignar turno rápido usá solo "turno" sin hora_entrada/hora_salida
-- Para ausencias usá "estado" (vacaciones, enfermedad, etc.)
-- Para horario custom usá hora_entrada + hora_salida
-- Siempre mencioná el legajo y nombre cuando hables de un empleado
-- Respondé en español argentino informal pero profesional
-- NO uses emojis ni formateo excesivo, mantené las respuestas limpias`
+<contexto_empresa>
+Sicamar opera con producción continua 24/7. Hay 4 áreas principales:
 
-// Crear tools runnable con betaTool
-function createRunnableTools(onToolCall?: (name: string, input: unknown) => void, onToolResult?: (name: string, result: string) => void) {
-  return [
-    betaTool({
-      name: 'sicamar_empleados_buscar',
-      description: 'Busca empleados por nombre o apellido para obtener su legajo. Usá esta tool PRIMERO cuando mencionen a alguien por nombre.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Texto de búsqueda: nombre, apellido o parte de ellos'
-          },
-          solo_activos: {
-            type: 'boolean',
-            description: 'Si es true (default), solo busca empleados activos'
-          },
-          limit: {
-            type: 'number',
-            description: 'Cantidad máxima de resultados (default: 10)'
-          }
-        },
-        required: ['query']
+<plantas>
+  <planta_1 nombre="Fundición Principal" criticidad="máxima">
+    Hornos rotativos y basculantes. Es el corazón de la operación.
+    Si falta gente acá, se para la producción de metal líquido.
+    Opera los 3 turnos (mañana, tarde, noche).
+    Dotación mínima: 18 personas por turno. Óptimo: 19.
+  </planta_1>
+  
+  <planta_2 nombre="Procesos Secundarios">
+    Satélite de Planta 1. Dinámica propia.
+    Generalmente NO hace turno noche (salvo excepciones de demanda).
+    Rotación pendular: solo Mañana ↔ Tarde.
+  </planta_2>
+  
+  <mantenimiento>
+    Mantiene todo funcionando.
+    Rotación cruzada especial para cobertura técnica continua.
+    Supervisores (Diale y Franco) se cruzan: si uno está de mañana, el otro de tarde.
+  </mantenimiento>
+  
+  <pañol>
+    Soporte de herramientas y EPP.
+    Generalmente turno fijo diurno.
+  </pañol>
+</plantas>
+</contexto_empresa>
+
+<turnos>
+Los 3 bloques de 8 horas:
+
+<turno_mañana horario="06:00-14:00">
+  Lunes a Viernes: 8 horas normales.
+  Sábados: 06:00-13:00 (7 horas). A partir de las 13:00 es hora extra al 100%.
+</turno_mañana>
+
+<turno_tarde horario="14:00-22:00">
+  Lunes a Viernes.
+  14:00-21:00 = horas diurnas.
+  21:00-22:00 = hora nocturna (+13.33% valor).
+</turno_tarde>
+
+<turno_noche horario="22:00-06:00">
+  Inicia DOMINGO a las 22:00 (operativamente es inicio de semana lunes).
+  Todas las horas son nocturnas (+13.33%).
+</turno_noche>
+</turnos>
+
+<rotacion>
+Sistema de rotación semanal por "Bloques" o "Squads":
+
+<ciclo_estandar plantas="Planta 1">
+  Semana A → Noche
+  Semana B → Mañana  
+  Semana C → Tarde
+  (repite)
+</ciclo_estandar>
+
+<ciclo_pendular plantas="Planta 2, algunos sectores">
+  Solo Mañana ↔ Tarde. No hacen noche.
+</ciclo_pendular>
+
+<enroque_mantenimiento>
+  Supervisores Diale y Franco se cruzan.
+  Nunca se superponen, nunca hacen noche.
+</enroque_mantenimiento>
+</rotacion>
+
+<dotacion_planta_1>
+Para operar a full capacity se necesitan 19 personas + supervisores:
+
+Hornos Rotativos (Fondo): 3 Horneros + 1 Chofer Pala
+Hornos Basculantes (Centro): 2 Horneros + 1 Chofer
+Colada (MC1 - Crítica):
+  - 1 Colador (CRÍTICO - sin él no sale metal)
+  - 1 Asistente
+  - 2 Operadores Media Esfera/Huevo
+  - 2 Operadores Granalla
+Logística:
+  - 1 Balancero (CRÍTICO - pesa producción, sin él no despachamos)
+  - 1 Apilador
+  - 2 Operadores Mesa (Zunchado/Embolsado)
+Auxiliares: 2 flotantes para relevos
+
+⚠️ ALERTA si hay menos de 18 personas en P1.
+</dotacion_planta_1>
+
+<polivalencia>
+No cualquiera puede cubrir cualquier puesto.
+Existe una matriz de skills (Nivel 1-4).
+Para cubrir un puesto crítico, buscar alguien con Nivel 3 o 4 en esa skill.
+</polivalencia>
+
+<horas_extra>
+<al_50_porciento>
+  Lunes a Viernes fuera de horario normal.
+  Sábados de 06:00 a 13:00.
+</al_50_porciento>
+
+<al_100_porciento>
+  Sábado a partir de las 13:00 ("Sábado Inglés").
+  Domingos completos.
+  Feriados completos.
+  + Recargo nocturno si cae entre 21:00-06:00.
+</al_100_porciento>
+
+<regla_bloque_30min>
+  Se pagan bloques de 30 minutos cumplidos.
+  14:00-14:25 = NO cobra extra.
+  14:00-14:35 = cobra 30 min.
+  Debe estar autorizado por Supervisor.
+</regla_bloque_30min>
+</horas_extra>
+
+<viandas>
+Vianda pagada solo si jornada ≥ 12 horas (8 normales + 4 extras).
+Corte del pedido: 08:00 AM.
+</viandas>
+
+<calorias_uom>
+Operarios de hornos = trabajo insalubre (Art. 66).
+Por ley deberían trabajar 6 horas, trabajan 8.
+Compensación: 1.5 horas de su valor hora por cada día en sector caliente.
+</calorias_uom>
+
+<estados_ausencia>
+trabaja, vacaciones, enfermedad, accidente, suspendido, licencia, art, falta
+</estados_ausencia>
+
+<comportamiento>
+- Sé conciso y directo, como un colega de laburo.
+- Español argentino informal pero profesional.
+- NO uses emojis ni formateo excesivo.
+- Cuando mencionen un empleado por nombre, SIEMPRE buscá primero su legajo.
+- Cuando digas día de la semana, usá las fechas del contexto actual.
+- Si vas a hacer múltiples operaciones independientes, ejecutá las tools EN PARALELO.
+- Mencioná legajo y nombre cuando hables de alguien.
+</comportamiento>
+
+<tools_uso>
+1. sicamar_empleados_buscar: SIEMPRE primero si mencionan nombre.
+2. sicamar_jornadas_consultar: Ver jornadas, filtrar por estado.
+3. sicamar_jornadas_editar: Modificar jornadas.
+   - Turno rápido: solo "turno" (mañana/tarde/noche)
+   - Horario custom: "hora_entrada" + "hora_salida"
+   - Ausencia: solo "estado" (vacaciones, enfermedad, etc.)
+
+Para operaciones masivas (ej: "ponelos de vacaciones a todos"), ejecutá múltiples llamadas EN PARALELO.
+</tools_uso>`
+
+// ============================================================================
+// TOOL DEFINITIONS (para Claude)
+// ============================================================================
+
+const TOOLS: Anthropic.Tool[] = [
+  {
+    name: 'sicamar_empleados_buscar',
+    description: 'Busca empleados por nombre o apellido para obtener su legajo. SIEMPRE usá esta tool primero cuando mencionen a alguien por nombre.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Nombre, apellido o parte de ellos' },
+        solo_activos: { type: 'boolean', description: 'Default true' },
+        limit: { type: 'number', description: 'Máximo resultados (default 10)' }
       },
-      run: async (input) => {
-        onToolCall?.('sicamar_empleados_buscar', input)
-        const result = await callMcpTool('sicamar.empleados.buscar', input as Record<string, unknown>)
-        onToolResult?.('sicamar_empleados_buscar', result)
-        return result
-      }
-    }),
-    betaTool({
-      name: 'sicamar_jornadas_consultar',
-      description: 'Consulta las jornadas planificadas de empleados. Puede filtrar por legajo, rango de fechas y estado.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          legajo: {
-            type: 'string',
-            description: 'Número de legajo del empleado (opcional)'
-          },
-          fecha_desde: {
-            type: 'string',
-            description: 'Fecha inicial en formato YYYY-MM-DD'
-          },
-          fecha_hasta: {
-            type: 'string',
-            description: 'Fecha final en formato YYYY-MM-DD (opcional, default igual a fecha_desde)'
-          },
-          estado: {
-            type: 'string',
-            enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
-            description: 'Filtrar por estado (ej: vacaciones para ver quiénes están de vacaciones)'
-          }
-        },
-        required: ['fecha_desde']
+      required: ['query']
+    }
+  },
+  {
+    name: 'sicamar_jornadas_consultar',
+    description: 'Consulta jornadas planificadas. Puede filtrar por legajo, fechas y estado.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        legajo: { type: 'string', description: 'Legajo del empleado (opcional)' },
+        fecha_desde: { type: 'string', description: 'YYYY-MM-DD' },
+        fecha_hasta: { type: 'string', description: 'YYYY-MM-DD (opcional)' },
+        estado: { 
+          type: 'string', 
+          enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
+          description: 'Filtrar por estado' 
+        }
       },
-      run: async (input) => {
-        onToolCall?.('sicamar_jornadas_consultar', input)
-        const result = await callMcpTool('sicamar.jornadas.consultar', input as Record<string, unknown>)
-        onToolResult?.('sicamar_jornadas_consultar', result)
-        return result
-      }
-    }),
-    betaTool({
-      name: 'sicamar_jornadas_editar',
-      description: 'Edita la jornada de un empleado. Puede asignar turno rápido, horario custom o estado de ausencia.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          legajo: {
-            type: 'string',
-            description: 'Número de legajo del empleado'
-          },
-          fecha: {
-            type: 'string',
-            description: 'Fecha en formato YYYY-MM-DD'
-          },
-          turno: {
-            type: 'string',
-            enum: ['mañana', 'tarde', 'noche'],
-            description: 'Turno rápido: mañana (06-14), tarde (14-22), noche (22-06). No requiere hora_entrada/hora_salida.'
-          },
-          hora_entrada: {
-            type: 'string',
-            description: 'Hora de entrada HH:MM para horario custom (ej: 08:00)'
-          },
-          hora_salida: {
-            type: 'string',
-            description: 'Hora de salida HH:MM para horario custom (ej: 16:00)'
-          },
-          estado: {
-            type: 'string',
-            enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
-            description: 'Estado de ausencia. Si se pasa, ignora turno y horarios.'
-          },
-          notas: {
-            type: 'string',
-            description: 'Notas opcionales'
-          }
+      required: ['fecha_desde']
+    }
+  },
+  {
+    name: 'sicamar_jornadas_editar',
+    description: 'Edita la jornada de un empleado. Opciones: turno rápido, horario custom, o estado de ausencia.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        legajo: { type: 'string', description: 'Número de legajo' },
+        fecha: { type: 'string', description: 'YYYY-MM-DD' },
+        turno: { 
+          type: 'string', 
+          enum: ['mañana', 'tarde', 'noche'],
+          description: 'Turno rápido: mañana (06-14), tarde (14-22), noche (22-06)'
         },
-        required: ['legajo', 'fecha']
+        hora_entrada: { type: 'string', description: 'HH:MM para horario custom' },
+        hora_salida: { type: 'string', description: 'HH:MM para horario custom' },
+        estado: { 
+          type: 'string', 
+          enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
+          description: 'Estado de ausencia (ignora turno y horarios)'
+        },
+        notas: { type: 'string', description: 'Notas opcionales' }
       },
-      run: async (input) => {
-        onToolCall?.('sicamar_jornadas_editar', input)
-        const result = await callMcpTool('sicamar.jornadas.editar', input as Record<string, unknown>)
-        onToolResult?.('sicamar_jornadas_editar', result)
-        return result
-      }
-    })
-  ]
+      required: ['legajo', 'fecha']
+    }
+  }
+]
+
+// Mapeo de tools a MCP
+const TOOL_TO_MCP: Record<string, string> = {
+  'sicamar_empleados_buscar': 'sicamar.empleados.buscar',
+  'sicamar_jornadas_consultar': 'sicamar.jornadas.consultar',
+  'sicamar_jornadas_editar': 'sicamar.jornadas.editar'
 }
+
+// ============================================================================
+// API ROUTE
+// ============================================================================
 
 export async function POST(request: NextRequest) {
   try {
@@ -242,82 +323,191 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    const anthropic = new Anthropic({
-      apiKey: process.env.ANTHROPIC_CLAUDE_KEY,
-    })
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_CLAUDE_KEY })
     
-    // Agregar contexto de la semana actual
-    let systemPrompt = SYSTEM_PROMPT
+    // Construir contexto dinámico (va en user message según best practices)
+    let userContextPrefix = ''
     if (context?.fechasSemana && context.fechasSemana.length === 7) {
       const diasNombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-      const fechasConDias = context.fechasSemana.map((f: string, i: number) => `  - ${diasNombres[i]}: ${f}`)
+      const fechasConDias = context.fechasSemana.map((f: string, i: number) => `${diasNombres[i]}: ${f}`)
+      const hoy = new Date().toISOString().split('T')[0]
       
-      systemPrompt += `
-
-CONTEXTO DE LA PANTALLA ACTUAL:
-El usuario está viendo la semana con las siguientes fechas:
+      userContextPrefix = `<contexto_pantalla>
+Semana que está viendo el usuario:
 ${fechasConDias.join('\n')}
 
-Fecha de hoy: ${new Date().toISOString().split('T')[0]}
+Fecha de hoy: ${hoy}
+Cuando diga "el lunes", "el martes", etc., usá estas fechas directamente.
+</contexto_pantalla>
 
-IMPORTANTE: Cuando el usuario diga "el lunes", "el martes", etc., usá las fechas de arriba. NO preguntes qué fecha es, ya sabés cuál es.`
+`
     }
     
-    // Mapear mensajes
-    const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg: { role: string; content: string }) => ({
+    // Preparar mensajes - inyectar contexto en el primer mensaje del usuario
+    const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg: { role: string; content: string }, idx: number) => ({
       role: msg.role as 'user' | 'assistant',
-      content: msg.content
+      content: idx === 0 && msg.role === 'user' && userContextPrefix 
+        ? userContextPrefix + msg.content 
+        : msg.content
     }))
     
-    // Stream la respuesta
     const encoder = new TextEncoder()
     const stream = new TransformStream()
     const writer = stream.writable.getWriter()
     
-    // Procesar en background con toolRunner
+    // Agentic loop con streaming
     ;(async () => {
       try {
-        // Crear tools con callbacks para streaming
-        const tools = createRunnableTools(
-          (name, input) => {
-            writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_call', name, input })}\n\n`))
-          },
-          (name, result) => {
-            try {
-              const parsed = JSON.parse(result)
-              writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_result', name, result: { success: parsed.success !== false, data: parsed } })}\n\n`))
-            } catch {
-              writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_result', name, result: { success: true, data: result } })}\n\n`))
-            }
-          }
-        )
+        let currentMessages = [...anthropicMessages]
+        let continueLoop = true
         
-        // Usar toolRunner con streaming
-        const runner = anthropic.beta.messages.toolRunner({
-          model: 'claude-opus-4-5-20251101',
-          max_tokens: 16000,
-          system: systemPrompt,
-          messages: anthropicMessages,
-          tools,
-          stream: true,
-        })
-        
-        // Iterar sobre los message streams
-        for await (const messageStream of runner) {
-          for await (const event of messageStream) {
-            if (event.type === 'content_block_delta') {
-              const delta = event.delta
-              if ('text' in delta && delta.text) {
-                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: delta.text })}\n\n`))
+        while (continueLoop) {
+          const response = await anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 16000,
+            system: SYSTEM_PROMPT,
+            messages: currentMessages,
+            tools: TOOLS,
+            stream: true,
+          })
+          
+          let currentText = ''
+          let currentToolUses: Array<{ id: string; name: string; input: Record<string, unknown> }> = []
+          let currentInputJson = ''
+          let currentToolId = ''
+          let currentToolName = ''
+          let stopReason: string | null = null
+          
+          for await (const event of response) {
+            // Content block start - detectar tipo
+            if (event.type === 'content_block_start') {
+              if (event.content_block.type === 'thinking') {
+                // Iniciar bloque de thinking
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'thinking_start' })}\n\n`))
+              } else if (event.content_block.type === 'tool_use') {
+                currentToolId = event.content_block.id
+                currentToolName = event.content_block.name
+                currentInputJson = ''
               }
             }
+            
+            // Content block delta
+            if (event.type === 'content_block_delta') {
+              const delta = event.delta
+              
+              // Thinking delta
+              if ('thinking' in delta && delta.thinking) {
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'thinking', content: delta.thinking })}\n\n`))
+              }
+              
+              // Text delta
+              if ('text' in delta && delta.text) {
+                currentText += delta.text
+                await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: delta.text })}\n\n`))
+              }
+              
+              // Tool input delta (partial JSON)
+              if ('partial_json' in delta && delta.partial_json) {
+                currentInputJson += delta.partial_json
+              }
+            }
+            
+            // Content block stop
+            if (event.type === 'content_block_stop') {
+              // Si estábamos construyendo una tool call, finalizarla
+              if (currentToolName && currentInputJson) {
+                try {
+                  const input = JSON.parse(currentInputJson) as Record<string, unknown>
+                  currentToolUses.push({ id: currentToolId, name: currentToolName, input })
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_call', name: currentToolName, input })}\n\n`))
+                } catch (e) {
+                  console.error('Failed to parse tool input:', currentInputJson, e)
+                }
+                currentToolId = ''
+                currentToolName = ''
+                currentInputJson = ''
+              }
+            }
+            
+            // Message delta - capturar stop reason
+            if (event.type === 'message_delta') {
+              stopReason = event.delta.stop_reason
+            }
+          }
+          
+          // Si hay tool uses, ejecutarlos EN PARALELO y continuar el loop
+          if (currentToolUses.length > 0 && stopReason === 'tool_use') {
+            // Agregar el assistant message con los tool uses al historial
+            currentMessages.push({
+              role: 'assistant',
+              content: [
+                ...(currentText ? [{ type: 'text' as const, text: currentText }] : []),
+                ...currentToolUses.map(tu => ({
+                  type: 'tool_use' as const,
+                  id: tu.id,
+                  name: tu.name,
+                  input: tu.input
+                }))
+              ]
+            })
+            
+            // Ejecutar TODAS las tools EN PARALELO
+            const toolResults = await Promise.all(
+              currentToolUses.map(async (toolUse) => {
+                const mcpToolName = TOOL_TO_MCP[toolUse.name]
+                if (!mcpToolName) {
+                  return { 
+                    id: toolUse.id, 
+                    name: toolUse.name, 
+                    result: JSON.stringify({ success: false, error: 'Unknown tool' }) 
+                  }
+                }
+                
+                const result = await callMcpTool(mcpToolName, toolUse.input)
+                return { id: toolUse.id, name: toolUse.name, result }
+              })
+            )
+            
+            // Enviar resultados al stream
+            const toolResultContents: Anthropic.ToolResultBlockParam[] = []
+            
+            for (const tr of toolResults) {
+              let parsed: { success?: boolean }
+              try {
+                parsed = JSON.parse(tr.result) as { success?: boolean }
+              } catch {
+                parsed = { success: true }
+              }
+              
+              await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+                type: 'tool_result', 
+                name: tr.name, 
+                result: { success: parsed.success !== false, data: parsed }
+              })}\n\n`))
+              
+              toolResultContents.push({
+                type: 'tool_result',
+                tool_use_id: tr.id,
+                content: tr.result
+              })
+            }
+            
+            // Agregar resultados al historial
+            currentMessages.push({ role: 'user', content: toolResultContents })
+            continueLoop = true
+          } else {
+            // No hay más tool calls, terminamos
+            continueLoop = false
           }
         }
         
         await writer.write(encoder.encode('data: [DONE]\n\n'))
       } catch (error) {
         console.error('Stream error:', error)
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', message: error instanceof Error ? error.message : 'Unknown error' })}\n\n`))
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+          type: 'error', 
+          message: error instanceof Error ? error.message : 'Unknown error' 
+        })}\n\n`))
       } finally {
         await writer.close()
       }
