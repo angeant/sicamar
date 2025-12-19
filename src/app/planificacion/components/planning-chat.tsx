@@ -2,21 +2,123 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 
+interface ToolCall {
+  name: string
+  input: Record<string, unknown>
+  result?: { success?: boolean; data?: unknown; error?: string }
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   thinking?: string
-  toolCalls?: Array<{
-    name: string
-    input: Record<string, unknown>
-    result?: unknown
-  }>
+  toolCalls?: ToolCall[]
 }
 
 interface PlanningChatProps {
   fechasSemana?: string[]
   onJornadaUpdated?: () => void
+}
+
+// Componente para mostrar una tool call expandible
+function ToolCallItem({ tool, isLast }: { tool: ToolCall; isLast: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const isSuccess = tool.result?.success !== false
+  const isLoading = tool.result === undefined
+  
+  return (
+    <div className={`${!isLast ? 'border-b border-zinc-800/50' : ''}`}>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-zinc-800/30 transition-colors text-left"
+      >
+        <svg 
+          width="8" 
+          height="8" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
+          className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+        <span className="text-[9px] text-zinc-400 font-mono flex-1">
+          {tool.name.replace('sicamar_', '').replace(/_/g, '.')}
+        </span>
+        {isLoading ? (
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
+        ) : (
+          <span className={`text-[9px] ${isSuccess ? 'text-green-500' : 'text-red-400'}`}>
+            {isSuccess ? '✓' : '✗'}
+          </span>
+        )}
+      </button>
+      
+      {isExpanded && (
+        <div className="px-2 pb-2 space-y-2">
+          {/* Input */}
+          <div>
+            <p className="text-[8px] text-zinc-600 uppercase tracking-wide mb-0.5">Input</p>
+            <pre className="text-[9px] text-zinc-400 bg-zinc-900/50 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all">
+              {JSON.stringify(tool.input, null, 2)}
+            </pre>
+          </div>
+          
+          {/* Output */}
+          {tool.result && (
+            <div>
+              <p className="text-[8px] text-zinc-600 uppercase tracking-wide mb-0.5">Output</p>
+              <pre className={`text-[9px] ${isSuccess ? 'text-zinc-400' : 'text-red-400'} bg-zinc-900/50 rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all`}>
+                {JSON.stringify(tool.result.data || tool.result.error || tool.result, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Componente para mostrar thinking expandible (estilo Cursor)
+function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreaming: boolean }) {
+  const [isExpanded, setIsExpanded] = useState(true)
+  
+  return (
+    <div className="bg-zinc-900/30 border border-zinc-800/50 rounded overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 hover:bg-zinc-800/30 transition-colors text-left"
+      >
+        <svg 
+          width="8" 
+          height="8" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
+          className={`text-zinc-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+        <span className="text-[9px] text-zinc-500 flex-1">
+          Pensando...
+        </span>
+        {isStreaming && (
+          <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 animate-pulse" />
+        )}
+      </button>
+      
+      {isExpanded && (
+        <div className="px-2 pb-2">
+          <p className="text-[9px] text-zinc-500 italic whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto scrollbar-hidden">
+            {thinking}
+          </p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function PlanningChat({ fechasSemana, onJornadaUpdated }: PlanningChatProps) {
@@ -34,7 +136,7 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
   
   useEffect(() => {
     scrollToBottom()
-  }, [messages, scrollToBottom])
+  }, [messages, currentThinking, scrollToBottom])
   
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
@@ -79,6 +181,7 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: '',
+        thinking: '',
         toolCalls: []
       }
       
@@ -100,7 +203,15 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
               const parsed = JSON.parse(data)
               
               if (parsed.type === 'thinking') {
-                setCurrentThinking(parsed.content)
+                // Acumular thinking en el mensaje
+                assistantMessage = {
+                  ...assistantMessage,
+                  thinking: (assistantMessage.thinking || '') + parsed.content
+                }
+                setMessages(prev => prev.map(m => 
+                  m.id === assistantMessage.id ? assistantMessage : m
+                ))
+                setCurrentThinking(assistantMessage.thinking || null)
               } else if (parsed.type === 'text') {
                 assistantMessage = {
                   ...assistantMessage,
@@ -121,12 +232,14 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
                 setMessages(prev => prev.map(m => 
                   m.id === assistantMessage.id ? assistantMessage : m
                 ))
+                setCurrentThinking(null)
               } else if (parsed.type === 'tool_result') {
-                const toolCalls = assistantMessage.toolCalls || []
-                const lastCall = toolCalls[toolCalls.length - 1]
-                if (lastCall) {
-                  lastCall.result = parsed.result
-                  assistantMessage = { ...assistantMessage, toolCalls: [...toolCalls] }
+                const toolCalls = [...(assistantMessage.toolCalls || [])]
+                // Buscar la tool call correspondiente
+                const toolIndex = toolCalls.findIndex(t => t.name === parsed.name && !t.result)
+                if (toolIndex >= 0) {
+                  toolCalls[toolIndex] = { ...toolCalls[toolIndex], result: parsed.result }
+                  assistantMessage = { ...assistantMessage, toolCalls }
                   setMessages(prev => prev.map(m => 
                     m.id === assistantMessage.id ? assistantMessage : m
                   ))
@@ -217,27 +330,26 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
                 <p className="text-[11px] text-zinc-200 whitespace-pre-wrap">{message.content}</p>
               </div>
             ) : (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
+                {/* Thinking (si existe y está completo) */}
+                {message.thinking && !currentThinking && (
+                  <ThinkingBlock thinking={message.thinking} isStreaming={false} />
+                )}
+                
+                {/* Tool calls */}
                 {message.toolCalls && message.toolCalls.length > 0 && (
-                  <div className="space-y-1">
+                  <div className="bg-zinc-900/50 border border-zinc-800/50 rounded overflow-hidden">
                     {message.toolCalls.map((tool, i) => (
-                      <div key={i} className="bg-zinc-900 border border-zinc-800 rounded px-2 py-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-1 h-1 rounded-full bg-[#C4322F]/60" />
-                          <span className="text-[9px] text-zinc-500 font-mono">
-                            {tool.name.replace('sicamar_', '').replace('_', '.')}
-                          </span>
-                          {tool.result !== undefined && (
-                            <span className={`text-[9px] ${(tool.result as { success?: boolean })?.success ? 'text-green-500' : 'text-red-400'}`}>
-                              {(tool.result as { success?: boolean })?.success ? '✓' : '✗'}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      <ToolCallItem 
+                        key={i} 
+                        tool={tool} 
+                        isLast={i === message.toolCalls!.length - 1} 
+                      />
                     ))}
                   </div>
                 )}
                 
+                {/* Message content */}
                 {message.content && (
                   <p className="text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed">{message.content}</p>
                 )}
@@ -246,18 +358,15 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
           </div>
         ))}
         
+        {/* Thinking en streaming */}
         {currentThinking && (
-          <div className="space-y-1">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" />
-              <span className="text-[9px] text-zinc-500">Pensando...</span>
-            </div>
-          </div>
+          <ThinkingBlock thinking={currentThinking} isStreaming={true} />
         )}
         
+        {/* Loading indicator */}
         {isLoading && !currentThinking && (
           <div className="flex items-center gap-1.5">
-            <span className="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
             <span className="text-[9px] text-zinc-500">...</span>
           </div>
         )}
