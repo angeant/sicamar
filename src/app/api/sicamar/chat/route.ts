@@ -19,6 +19,8 @@ async function generateMcpToken(): Promise<string> {
     mcp: 'sicamar-mcp',
     tools: [
       'sicamar.jornadas.editar',
+      'sicamar.jornadas.bulk',
+      'sicamar.jornadas.limpiar',
       'sicamar.jornadas.consultar',
       'sicamar.empleados.buscar'
     ],
@@ -230,12 +232,19 @@ trabaja, vacaciones, enfermedad, accidente, suspendido, licencia, art, falta
 <tools_uso>
 1. sicamar_empleados_buscar: SIEMPRE primero si mencionan nombre.
 2. sicamar_jornadas_consultar: Ver jornadas, filtrar por estado.
-3. sicamar_jornadas_editar: Modificar jornadas.
+3. sicamar_jornadas_editar: Modificar UNA jornada (1 empleado, 1 fecha).
    - Turno rápido: solo "turno" (mañana/tarde/noche)
    - Horario custom: "hora_entrada" + "hora_salida"
    - Ausencia: solo "estado" (vacaciones, enfermedad, etc.)
-
-Para operaciones masivas (ej: "ponelos de vacaciones a todos"), ejecutá múltiples llamadas EN PARALELO.
+4. sicamar_jornadas_bulk: PREFERÍ ESTA para operaciones masivas.
+   - Múltiples empleados: pasá array de legajos ["245", "332", "118"]
+   - Rango de fechas: fecha_desde + fecha_hasta
+   - Mismo turno/estado para todos
+   - Ejemplos: "equipo de vacaciones", "turno mañana toda la semana", "3 empleados al turno noche L-V"
+5. sicamar_jornadas_limpiar: Elimina/limpia jornadas (el empleado queda sin turno asignado).
+   - Un empleado, un día: legajos: ["95"], fecha_desde: "2025-12-15"
+   - Un empleado, varios días: legajos: ["95"], fecha_desde + fecha_hasta
+   - Varios empleados: legajos: ["95", "245", "332"], fecha_desde + fecha_hasta
 </tools_uso>`
 
 // ============================================================================
@@ -276,7 +285,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'sicamar_jornadas_editar',
-    description: 'Edita la jornada de un empleado. Opciones: turno rápido, horario custom, o estado de ausencia.',
+    description: 'Edita la jornada de UN empleado para UNA fecha. Para múltiples empleados o fechas, usá sicamar_jornadas_bulk.',
     input_schema: {
       type: 'object',
       properties: {
@@ -298,6 +307,53 @@ const TOOLS: Anthropic.Tool[] = [
       },
       required: ['legajo', 'fecha']
     }
+  },
+  {
+    name: 'sicamar_jornadas_bulk',
+    description: 'Edita jornadas en MASA para múltiples empleados y/o múltiples fechas en una sola llamada. Ideal para: poner varios empleados de vacaciones, asignar turno a un equipo por toda la semana, cambiar horario de un grupo.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        legajos: { 
+          type: 'array', 
+          items: { type: 'string' },
+          description: 'Array de legajos a modificar. Ej: ["245", "332", "118"]'
+        },
+        fecha_desde: { type: 'string', description: 'Fecha inicio YYYY-MM-DD' },
+        fecha_hasta: { type: 'string', description: 'Fecha fin YYYY-MM-DD (inclusive)' },
+        turno: { 
+          type: 'string', 
+          enum: ['mañana', 'tarde', 'noche'],
+          description: 'Turno rápido para todos'
+        },
+        hora_entrada: { type: 'string', description: 'HH:MM para horario custom' },
+        hora_salida: { type: 'string', description: 'HH:MM para horario custom' },
+        estado: { 
+          type: 'string', 
+          enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
+          description: 'Estado de ausencia para todos'
+        },
+        notas: { type: 'string', description: 'Notas opcionales' }
+      },
+      required: ['legajos', 'fecha_desde', 'fecha_hasta']
+    }
+  },
+  {
+    name: 'sicamar_jornadas_limpiar',
+    description: 'Elimina/limpia jornadas planificadas. El empleado queda sin turno asignado (vacío/disponible). Ideal para: resetear planificación, liberar a alguien de su turno, borrar asignaciones incorrectas.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        legajos: { 
+          type: 'array', 
+          items: { type: 'string' },
+          description: 'Array de legajos a limpiar. Ej: ["95"] o ["95", "245", "332"]'
+        },
+        fecha_desde: { type: 'string', description: 'Fecha inicio YYYY-MM-DD (si es solo un día, no pasés fecha_hasta)' },
+        fecha_hasta: { type: 'string', description: 'Fecha fin YYYY-MM-DD (opcional, para rango de fechas)' }
+      },
+      required: ['legajos', 'fecha_desde']
+    }
   }
 ]
 
@@ -305,7 +361,9 @@ const TOOLS: Anthropic.Tool[] = [
 const TOOL_TO_MCP: Record<string, string> = {
   'sicamar_empleados_buscar': 'sicamar.empleados.buscar',
   'sicamar_jornadas_consultar': 'sicamar.jornadas.consultar',
-  'sicamar_jornadas_editar': 'sicamar.jornadas.editar'
+  'sicamar_jornadas_editar': 'sicamar.jornadas.editar',
+  'sicamar_jornadas_bulk': 'sicamar.jornadas.bulk',
+  'sicamar_jornadas_limpiar': 'sicamar.jornadas.limpiar'
 }
 
 // ============================================================================

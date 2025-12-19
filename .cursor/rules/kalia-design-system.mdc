@@ -1,8 +1,7 @@
 ---
 description: Sistema de diseño Kalia para Sicamar. Aplicar SIEMPRE en componentes React, estilos, páginas y UI.
-alwaysApply: true
+alwaysApply: false
 ---
-
 # Kalia Design System - Sicamar
 
 ## Estética

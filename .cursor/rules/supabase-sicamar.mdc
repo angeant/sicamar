@@ -47,6 +47,7 @@ SELECT * FROM empleados WHERE activo = true;
 
 ## Tablas principales (schema sicamar)
 
+### RRHH
 | Tabla | Descripción |
 |-------|-------------|
 | `empleados` | Nómina de empleados |
@@ -58,6 +59,20 @@ SELECT * FROM empleados WHERE activo = true;
 | `novedades` | Novedades de RRHH |
 | `liquidaciones` | Períodos de liquidación |
 | `liquidaciones_conceptos` | Detalle de conceptos por liquidación |
+
+### Chat / Conversaciones
+| Tabla | Descripción |
+|-------|-------------|
+| `conversations` | Conversaciones del chat de planificación |
+| `messages` | Mensajes de cada conversación |
+
+**Columnas clave de `conversations`:**
+- `id` - UUID
+- `session_id` - Identificador de sesión
+- `user_email` - Email del usuario que inició la conversación
+- `created_at`, `updated_at`, `last_message_at` - Timestamps
+
+> ⚠️ **IMPORTANTE**: Las tablas `conversations` y `messages` están en el schema `sicamar`, NO en `public`. Siempre usar `.schema('sicamar')` al accederlas.
 
 ## Ejemplo completo de query
 ```typescript

@@ -67,15 +67,33 @@ function getLunesDeSemana(fecha: Date): Date {
   return new Date(d.setDate(diff))
 }
 
-// Generar array de fechas para una semana (Lun-Dom)
-function getFechasSemana(lunes: Date): string[] {
+// Tipos de vista
+type TipoVista = 'semana' | 'quincena' | 'mes'
+
+// Generar array de fechas según tipo de vista
+function getFechasVista(inicio: Date, tipo: TipoVista): string[] {
   const fechas: string[] = []
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(lunes)
-    d.setDate(lunes.getDate() + i)
+  let dias = 7
+  
+  if (tipo === 'quincena') {
+    dias = 15
+  } else if (tipo === 'mes') {
+    // Días hasta fin de mes
+    const finMes = new Date(inicio.getFullYear(), inicio.getMonth() + 1, 0)
+    dias = Math.ceil((finMes.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  }
+  
+  for (let i = 0; i < dias; i++) {
+    const d = new Date(inicio)
+    d.setDate(inicio.getDate() + i)
     fechas.push(d.toISOString().split('T')[0])
   }
   return fechas
+}
+
+// Generar array de fechas para una semana (Lun-Dom) - mantener por compatibilidad
+function getFechasSemana(lunes: Date): string[] {
+  return getFechasVista(lunes, 'semana')
 }
 
 // Formato corto de día
@@ -224,7 +242,8 @@ export default function PlanificacionPage() {
   
   const [empleados, setEmpleados] = useState<EmpleadoConJornadas[]>([])
   const [loading, setLoading] = useState(true)
-  const [semanaActual, setSemanaActual] = useState<Date>(getLunesDeSemana(new Date()))
+  const [tipoVista, setTipoVista] = useState<TipoVista>('semana')
+  const [inicioVista, setInicioVista] = useState<Date>(getLunesDeSemana(new Date()))
   const [fechas, setFechas] = useState<string[]>([])
   const [celdaSeleccionada, setCeldaSeleccionada] = useState<CeldaSeleccionada | null>(null)
   const [guardando, setGuardando] = useState(false)
@@ -257,8 +276,8 @@ export default function PlanificacionPage() {
   
   const cargarDatos = useCallback(async () => {
     setLoading(true)
-    const fechasSemana = getFechasSemana(semanaActual)
-    setFechas(fechasSemana)
+    const fechasVista = getFechasVista(inicioVista, tipoVista)
+    setFechas(fechasVista)
     
     try {
       // Cargar empleados jornalizados activos
@@ -266,12 +285,12 @@ export default function PlanificacionPage() {
       const empData = await empRes.json()
       const empleadosJornal = (empData.empleados || []).filter((e: Empleado & { clase: string }) => e.clase === 'Jornal')
       
-      // Cargar jornadas de la semana + día anterior (para turnos nocturnos que salen el lunes)
-      const fechaAnteriorAlLunes = new Date(fechasSemana[0] + 'T12:00:00')
-      fechaAnteriorAlLunes.setDate(fechaAnteriorAlLunes.getDate() - 1)
-      const fechaAnteriorStr = fechaAnteriorAlLunes.toISOString().split('T')[0]
+      // Cargar jornadas de la vista + día anterior (para turnos nocturnos)
+      const fechaAnteriorAlInicio = new Date(fechasVista[0] + 'T12:00:00')
+      fechaAnteriorAlInicio.setDate(fechaAnteriorAlInicio.getDate() - 1)
+      const fechaAnteriorStr = fechaAnteriorAlInicio.toISOString().split('T')[0]
       
-      const jorRes = await fetch(`/api/sicamar/jornadas?desde=${fechaAnteriorStr}&hasta=${fechasSemana[6]}&solo_planificado=true`)
+      const jorRes = await fetch(`/api/sicamar/jornadas?desde=${fechaAnteriorStr}&hasta=${fechasVista[fechasVista.length - 1]}&solo_planificado=true`)
       const jorData = await jorRes.json()
       
       // Mapear jornadas por empleado_id y fecha
@@ -308,7 +327,7 @@ export default function PlanificacionPage() {
         
         const jornadas: Record<string, JornadaDiaria> = {}
         
-        for (const fecha of fechasSemana) {
+        for (const fecha of fechasVista) {
           // Buscar jornada normal para esta fecha
           let jornada = jornadasEmp.get(fecha)
           
@@ -368,7 +387,7 @@ export default function PlanificacionPage() {
     } finally {
       setLoading(false)
     }
-  }, [semanaActual])
+  }, [inicioVista, tipoVista])
   
   useEffect(() => {
     cargarDatos()
@@ -385,31 +404,60 @@ export default function PlanificacionPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
   
-  // Navegación de semanas
-  const semanaAnterior = () => {
-    const nueva = new Date(semanaActual)
-    nueva.setDate(nueva.getDate() - 7)
-    setSemanaActual(nueva)
+  // Navegación según tipo de vista
+  const navegarAnterior = () => {
+    const nueva = new Date(inicioVista)
+    if (tipoVista === 'semana') {
+      nueva.setDate(nueva.getDate() - 7)
+    } else if (tipoVista === 'quincena') {
+      nueva.setDate(nueva.getDate() - 15)
+    } else {
+      nueva.setMonth(nueva.getMonth() - 1)
+    }
+    setInicioVista(nueva)
     setCeldaSeleccionada(null)
   }
   
-  const semanaSiguiente = () => {
-    const nueva = new Date(semanaActual)
-    nueva.setDate(nueva.getDate() + 7)
-    setSemanaActual(nueva)
+  const navegarSiguiente = () => {
+    const nueva = new Date(inicioVista)
+    if (tipoVista === 'semana') {
+      nueva.setDate(nueva.getDate() + 7)
+    } else if (tipoVista === 'quincena') {
+      nueva.setDate(nueva.getDate() + 15)
+    } else {
+      nueva.setMonth(nueva.getMonth() + 1)
+    }
+    setInicioVista(nueva)
     setCeldaSeleccionada(null)
   }
   
-  const irAHoy = () => {
-    setSemanaActual(getLunesDeSemana(new Date()))
+  // Cambiar tipo de vista
+  const cambiarVista = (tipo: TipoVista) => {
+    setTipoVista(tipo)
+    // Ajustar inicio según el tipo
+    if (tipo === 'semana') {
+      setInicioVista(getLunesDeSemana(new Date()))
+    } else if (tipo === 'quincena') {
+      const hoy = new Date()
+      const dia = hoy.getDate()
+      const inicio = dia <= 15 ? 1 : 16
+      setInicioVista(new Date(hoy.getFullYear(), hoy.getMonth(), inicio))
+    } else {
+      setInicioVista(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+    }
     setCeldaSeleccionada(null)
   }
   
   // Formatear rango de fechas
-  const formatRangoSemana = () => {
+  const formatRangoVista = () => {
     if (fechas.length === 0) return ''
     const inicio = new Date(fechas[0] + 'T12:00:00')
-    const fin = new Date(fechas[6] + 'T12:00:00')
+    const fin = new Date(fechas[fechas.length - 1] + 'T12:00:00')
+    
+    if (tipoVista === 'mes') {
+      return inicio.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
+    }
+    
     const optsCorto = { day: 'numeric' as const }
     const optsLargo = { day: 'numeric' as const, month: 'short' as const }
     
@@ -417,6 +465,11 @@ export default function PlanificacionPage() {
       return `${inicio.toLocaleDateString('es-AR', optsCorto)} - ${fin.toLocaleDateString('es-AR', optsLargo)}`
     }
     return `${inicio.toLocaleDateString('es-AR', optsLargo)} - ${fin.toLocaleDateString('es-AR', optsLargo)}`
+  }
+  
+  // Calcular número de semana
+  const getNumeroSemana = () => {
+    return Math.ceil((inicioVista.getTime() - new Date(inicioVista.getFullYear(), 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000))
   }
   
   // Verificar si es hoy
@@ -599,24 +652,34 @@ export default function PlanificacionPage() {
           </div>
           
           <div className="flex items-center gap-6">
-            {/* Navegación de semana */}
-            <div className="flex items-center gap-3">
+            {/* Selector de vista */}
+            <div className="flex items-center bg-neutral-100 rounded-lg p-0.5">
+              {(['semana', 'quincena', 'mes'] as TipoVista[]).map((tipo) => (
+                <button
+                  key={tipo}
+                  onClick={() => cambiarVista(tipo)}
+                  className={`px-3 py-1.5 text-xs rounded-md transition-all ${
+                    tipoVista === tipo 
+                      ? 'bg-white text-neutral-900 shadow-sm' 
+                      : 'text-neutral-500 hover:text-neutral-700'
+                  }`}
+                >
+                  {tipo.charAt(0).toUpperCase() + tipo.slice(1)}
+                </button>
+              ))}
+            </div>
+            
+            {/* Navegación */}
+            <div className="flex items-center gap-1">
               <button
-                onClick={semanaAnterior}
+                onClick={navegarAnterior}
                 className="p-2 rounded hover:bg-neutral-100 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4 text-neutral-400" />
               </button>
               
               <button
-                onClick={irAHoy}
-                className="text-sm text-neutral-500 hover:text-neutral-900 transition-colors px-3 py-1 rounded hover:bg-neutral-50"
-              >
-                Hoy
-              </button>
-              
-              <button
-                onClick={semanaSiguiente}
+                onClick={navegarSiguiente}
                 className="p-2 rounded hover:bg-neutral-100 transition-colors"
               >
                 <ChevronRight className="w-4 h-4 text-neutral-400" />
@@ -625,11 +688,18 @@ export default function PlanificacionPage() {
             
             <div className="text-right">
               <p className="text-sm font-medium text-neutral-900">
-                {formatRangoSemana()}
+                {formatRangoVista()}
               </p>
-              <p className="text-xs text-neutral-400">
-                Semana {Math.ceil((semanaActual.getTime() - new Date(semanaActual.getFullYear(), 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000))}
-              </p>
+              {tipoVista === 'semana' && (
+                <p className="text-xs text-neutral-400">
+                  Semana {getNumeroSemana()}
+                </p>
+              )}
+              {tipoVista === 'quincena' && (
+                <p className="text-xs text-neutral-400">
+                  {fechas.length > 0 && new Date(fechas[0] + 'T12:00:00').getDate() <= 15 ? '1ª' : '2ª'} quincena
+                </p>
+              )}
             </div>
             
             <Link
@@ -651,25 +721,30 @@ export default function PlanificacionPage() {
                 <th className="text-left text-xs font-normal text-neutral-400 pb-4 pr-6 w-48">
                   Empleado
                 </th>
-                {fechas.map((fecha, idx) => {
+                {fechas.map((fecha) => {
                   const d = new Date(fecha + 'T12:00:00')
                   const dia = d.getDate()
+                  const diaSemana = d.getDay()
+                  const diaCorto = DIAS_CORTOS[diaSemana === 0 ? 6 : diaSemana - 1]
                   const mes = d.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')
+                  const hoy = esHoy(fecha)
                   
                   return (
                     <th 
                       key={fecha}
-                      className={`text-center pb-4 px-2 min-w-[70px] ${esHoy(fecha) ? 'bg-neutral-100/50 rounded-t-lg' : ''}`}
+                      className={`text-center pb-4 pt-1 px-1.5 min-w-[52px] ${hoy ? 'bg-[#C4322F]/[0.03]' : ''}`}
                     >
-                      <p className={`text-[10px] uppercase tracking-wider ${esHoy(fecha) ? 'text-neutral-900 font-medium' : 'text-neutral-400'}`}>
-                        {DIAS_CORTOS[idx]}
+                      <p className={`text-[10px] uppercase tracking-wider ${hoy ? 'text-[#C4322F]' : 'text-neutral-400'}`}>
+                        {diaCorto}
                       </p>
-                      <p className={`text-sm font-light mt-0.5 ${esHoy(fecha) ? 'text-neutral-900' : 'text-neutral-500'}`}>
+                      <p className={`text-sm font-light mt-0.5 ${hoy ? 'text-[#C4322F] font-medium' : 'text-neutral-500'}`}>
                         {dia}
                       </p>
-                      <p className="text-[9px] text-neutral-300">
-                        {mes}
-                      </p>
+                      {(tipoVista !== 'semana' || dia === 1 || fechas.indexOf(fecha) === 0) && (
+                        <p className={`text-[9px] ${hoy ? 'text-[#C4322F]/60' : 'text-neutral-300'}`}>
+                          {mes}
+                        </p>
+                      )}
                     </th>
                   )
                 })}
@@ -735,7 +810,7 @@ export default function PlanificacionPage() {
                           onClick={(e) => handleCeldaClick(empleado, fecha, j || null, e)}
                           className={`
                             text-center py-2 px-1 cursor-pointer transition-all
-                            ${esHoy(fecha) ? 'bg-neutral-50/50' : ''} 
+                            ${esHoy(fecha) ? 'bg-[#C4322F]/[0.03]' : ''} 
                             ${isSelected ? 'ring-2 ring-[#C4322F] ring-inset' : 'hover:bg-neutral-100/50'}
                           `}
                         >
@@ -821,7 +896,11 @@ export default function PlanificacionPage() {
                 {celdaSeleccionada.empleado.apellido}
               </p>
               <p className="text-xs text-neutral-400">
-                {DIAS_LARGOS[fechas.indexOf(celdaSeleccionada.fecha)]} {new Date(celdaSeleccionada.fecha + 'T12:00:00').getDate()}
+                {(() => {
+                  const d = new Date(celdaSeleccionada.fecha + 'T12:00:00')
+                  const diaSemana = d.getDay()
+                  return DIAS_LARGOS[diaSemana === 0 ? 6 : diaSemana - 1]
+                })()} {new Date(celdaSeleccionada.fecha + 'T12:00:00').getDate()}
               </p>
             </div>
             <button 
