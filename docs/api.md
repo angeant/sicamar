@@ -308,3 +308,4 @@ Actualiza evento (aprobar, cancelar, etc.)
 *Ver [database.md](./database.md) para estructura de datos*
 
 
+

@@ -240,3 +240,4 @@ francos_disponibles = francos_a_favor - francos_tomados
 *Ver [database.md](./database.md) para estructura de tablas*
 
 
+

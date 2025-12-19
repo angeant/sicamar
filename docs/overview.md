@@ -101,3 +101,4 @@ TURNO (8hs)  ───▶  SEMANA  ───▶  QUINCENA  ───▶  MES
 *Ver [database.md](./database.md) para detalle de tablas*
 
 
+

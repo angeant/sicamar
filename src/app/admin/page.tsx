@@ -215,9 +215,8 @@ export default function AdminPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
-  
-  // Filters
   const [searchTerm, setSearchTerm] = useState('')
+  const [expandedUser, setExpandedUser] = useState<string | null>(null)
   
   const userEmail = user?.primaryEmailAddress?.emailAddress
   const isAuthorized = userEmail === ALLOWED_EMAIL
@@ -238,43 +237,6 @@ export default function AdminPage() {
       setLoading(false)
     }
   }, [isAuthorized])
-  
-  useEffect(() => {
-    if (isLoaded && !isSignedIn) {
-      router.push('/sign-in')
-      return
-    }
-    
-    if (isLoaded && isSignedIn && isAuthorized) {
-      loadConversations()
-    }
-  }, [isLoaded, isSignedIn, isAuthorized, router, loadConversations])
-  
-  // Loading state
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
-      </div>
-    )
-  }
-  
-  // Not signed in
-  if (!isSignedIn) {
-    return null
-  }
-  
-  // Not authorized
-  if (!isAuthorized) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-sm text-red-400">Acceso denegado</p>
-          <p className="text-[10px] text-zinc-500 mt-1">No tenés permisos para acceder a esta página.</p>
-        </div>
-      </div>
-    )
-  }
   
   // Agrupar conversaciones por usuario
   const userGroups = useMemo(() => {
@@ -312,10 +274,7 @@ export default function AdminPage() {
     )
   }, [conversations])
   
-  // Estado para el usuario expandido
-  const [expandedUser, setExpandedUser] = useState<string | null>(null)
-  
-  // Filter and sort conversations
+  // Filter groups
   const filteredGroups = useMemo(() => {
     if (!searchTerm) return userGroups
     
@@ -334,6 +293,41 @@ export default function AdminPage() {
         group.conversations.length > 0
       )
   }, [userGroups, searchTerm])
+  
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      router.push('/sign-in')
+      return
+    }
+    
+    if (isLoaded && isSignedIn && isAuthorized) {
+      loadConversations()
+    }
+  }, [isLoaded, isSignedIn, isAuthorized, router, loadConversations])
+  
+  // Early returns AFTER all hooks
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
+      </div>
+    )
+  }
+  
+  if (!isSignedIn) {
+    return null
+  }
+  
+  if (!isAuthorized) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-sm text-red-400">Acceso denegado</p>
+          <p className="text-[10px] text-zinc-500 mt-1">No tenés permisos para acceder a esta página.</p>
+        </div>
+      </div>
+    )
+  }
   
   const formatRelativeTime = (timestamp: string) => {
     const now = new Date()

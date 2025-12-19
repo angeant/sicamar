@@ -242,3 +242,4 @@ Notifica a RRHH para aprobación
 *Ver [marcaciones.md](./marcaciones.md) para detalle de sincronización*
 
 
+

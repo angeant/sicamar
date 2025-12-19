@@ -453,3 +453,4 @@ empleados ─────────┬───────── marcaciones
 *Ver [api.md](./api.md) para endpoints*
 
 
+

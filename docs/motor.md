@@ -334,3 +334,4 @@ Si una paritaria se cierra el día 20 con vigencia desde el 1, se debe generar u
 *Última actualización: Diciembre 2025*
 
 
+
