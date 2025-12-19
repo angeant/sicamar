@@ -103,17 +103,20 @@ const SYSTEM_PROMPT = `Sos un asistente de planificación de turnos para Sicamar
 
 CONTEXTO:
 - Sicamar es una empresa pesquera argentina
-- Los empleados trabajan en turnos: Mañana (06:00-14:00), Tarde (14:00-22:00), Noche (22:00-06:00)
+- Turnos: mañana (06:00-14:00), tarde (14:00-22:00), noche (22:00-06:00)
+- Estados de ausencia: vacaciones, enfermedad, accidente, suspendido, licencia, art, falta
 - Cada jornada tiene 8 horas normales, lo que exceda son horas extra
-- Los estados posibles son: VAC (vacaciones), ENF (enfermedad), ACC (accidente), SUS (suspendido), LIC (licencia), ART, FLT (falta)
 
 INSTRUCCIONES:
 - Sé conciso y directo
 - Cuando mencionen un empleado por nombre, PRIMERO usá sicamar_empleados_buscar para obtener el legajo
 - NO preguntes el legajo si podés buscarlo por nombre
+- Para asignar turno rápido usá solo "turno" sin hora_entrada/hora_salida
+- Para ausencias usá "estado" (vacaciones, enfermedad, etc.)
+- Para horario custom usá hora_entrada + hora_salida
 - Siempre mencioná el legajo y nombre cuando hables de un empleado
 - Respondé en español argentino informal pero profesional
-- NO uses emojis ni formateo excesivo, mantené las respuestas limpias y minimalistas`
+- NO uses emojis ni formateo excesivo, mantené las respuestas limpias`
 
 // Crear tools runnable con betaTool
 function createRunnableTools(onToolCall?: (name: string, input: unknown) => void, onToolResult?: (name: string, result: string) => void) {
@@ -148,21 +151,26 @@ function createRunnableTools(onToolCall?: (name: string, input: unknown) => void
     }),
     betaTool({
       name: 'sicamar_jornadas_consultar',
-      description: 'Consulta las jornadas planificadas de empleados. Puede filtrar por legajo y rango de fechas.',
+      description: 'Consulta las jornadas planificadas de empleados. Puede filtrar por legajo, rango de fechas y estado.',
       inputSchema: {
         type: 'object',
         properties: {
           legajo: {
             type: 'string',
-            description: 'Número de legajo del empleado (opcional, si no se pasa trae todos)'
+            description: 'Número de legajo del empleado (opcional)'
           },
           fecha_desde: {
             type: 'string',
-            description: 'Fecha inicial en formato YYYY-MM-DD (requerido)'
+            description: 'Fecha inicial en formato YYYY-MM-DD'
           },
           fecha_hasta: {
             type: 'string',
             description: 'Fecha final en formato YYYY-MM-DD (opcional, default igual a fecha_desde)'
+          },
+          estado: {
+            type: 'string',
+            enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
+            description: 'Filtrar por estado (ej: vacaciones para ver quiénes están de vacaciones)'
           }
         },
         required: ['fecha_desde']
@@ -176,7 +184,7 @@ function createRunnableTools(onToolCall?: (name: string, input: unknown) => void
     }),
     betaTool({
       name: 'sicamar_jornadas_editar',
-      description: 'Edita la jornada planificada de un empleado para una fecha específica.',
+      description: 'Edita la jornada de un empleado. Puede asignar turno rápido, horario custom o estado de ausencia.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -191,22 +199,27 @@ function createRunnableTools(onToolCall?: (name: string, input: unknown) => void
           turno: {
             type: 'string',
             enum: ['mañana', 'tarde', 'noche'],
-            description: 'Código de turno'
+            description: 'Turno rápido: mañana (06-14), tarde (14-22), noche (22-06). No requiere hora_entrada/hora_salida.'
           },
           hora_entrada: {
             type: 'string',
-            description: 'Hora de entrada en formato HH:MM (ej: 06:00)'
+            description: 'Hora de entrada HH:MM para horario custom (ej: 08:00)'
           },
           hora_salida: {
             type: 'string',
-            description: 'Hora de salida en formato HH:MM (ej: 14:00)'
+            description: 'Hora de salida HH:MM para horario custom (ej: 16:00)'
+          },
+          estado: {
+            type: 'string',
+            enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
+            description: 'Estado de ausencia. Si se pasa, ignora turno y horarios.'
           },
           notas: {
             type: 'string',
-            description: 'Notas opcionales sobre el cambio'
+            description: 'Notas opcionales'
           }
         },
-        required: ['legajo', 'fecha', 'hora_entrada', 'hora_salida']
+        required: ['legajo', 'fecha']
       },
       run: async (input) => {
         onToolCall?.('sicamar_jornadas_editar', input)
