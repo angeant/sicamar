@@ -378,13 +378,20 @@ function DashboardArtistico() {
             </div>
           </div>
           
-          {/* Link a Planificación */}
-          <div>
+          {/* Links de navegación */}
+          <div className="flex flex-col gap-2">
             <Link 
               href="/planificacion"
               className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-[#C4322F] transition-colors"
             >
-              <span>Ver Planificación</span>
+              <span>Planificación</span>
+              <span>→</span>
+            </Link>
+            <Link 
+              href="/rotaciones"
+              className="inline-flex items-center gap-2 text-sm text-neutral-400 hover:text-[#C4322F] transition-colors"
+            >
+              <span>Rotaciones</span>
               <span>→</span>
             </Link>
           </div>

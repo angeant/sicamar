@@ -408,6 +408,8 @@ const TOOL_TO_MCP: Record<string, string> = {
 // CONVERSATION PERSISTENCE
 // ============================================================================
 
+const AGENT_NAME = 'Agente de Planificación - Web'
+
 async function getOrCreateConversation(conversationId: string | null, userEmail?: string): Promise<string> {
   // 1. Si hay un conversation_id válido, verificar que existe y usarlo
   if (conversationId) {
@@ -433,13 +435,14 @@ async function getOrCreateConversation(conversationId: string | null, userEmail?
     }
   }
   
-  // 2. Si hay email, buscar la última conversación del usuario
+  // 2. Si hay email, buscar la última conversación del usuario para ESTE agente
   if (userEmail) {
     const { data: lastConv } = await supabaseServer
       .schema('sicamar')
       .from('conversations')
       .select('id')
       .eq('user_email', userEmail)
+      .eq('agent_name', AGENT_NAME)
       .order('last_message_at', { ascending: false })
       .limit(1)
       .single()
@@ -466,6 +469,7 @@ async function getOrCreateConversation(conversationId: string | null, userEmail?
     .insert({
       session_id: userEmail || `anon_${Date.now()}`, // Usar email como session_id para mejor tracking
       user_email: userEmail || null,
+      agent_name: AGENT_NAME,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       last_message_at: new Date().toISOString()

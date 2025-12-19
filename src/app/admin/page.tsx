@@ -27,8 +27,15 @@ interface Conversation {
   last_user_message?: string
   messages?: Message[]
   user_email?: string
-  agent_name?: string
+  agent_name: string
 }
+
+// Agentes disponibles
+const AGENTS = [
+  { key: 'all', label: 'Todos', filter: null },
+  { key: 'planificacion', label: 'Planificación', filter: 'Agente de Planificación - Web' },
+  { key: 'posiciones', label: 'Posiciones', filter: 'Agente de Posiciones - Web' },
+]
 
 interface UserGroup {
   email: string
@@ -159,7 +166,7 @@ function ConversationDetail({ conversation, onClose }: { conversation: Conversat
               {conversation.user_email || 'Conversación'}
             </p>
             <p className="text-[10px] text-zinc-500 mt-0.5">
-              Agente de Planificación - Web
+              {conversation.agent_name || 'Agente desconocido'}
             </p>
             <p className="text-[9px] text-zinc-600 font-mono mt-0.5">{conversation.session_id || conversation.id}</p>
           </div>
@@ -217,6 +224,7 @@ export default function AdminPage() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
+  const [selectedAgent, setSelectedAgent] = useState<string>('all')
   
   const userEmail = user?.primaryEmailAddress?.emailAddress
   const isAuthorized = userEmail === ALLOWED_EMAIL
@@ -238,11 +246,17 @@ export default function AdminPage() {
     }
   }, [isAuthorized])
   
-  // Agrupar conversaciones por usuario
+  // Agrupar conversaciones por usuario (filtrando por agente)
   const userGroups = useMemo(() => {
     const groups = new Map<string, Conversation[]>()
     
-    conversations.forEach(conv => {
+    // Aplicar filtro de agente
+    const agentFilter = AGENTS.find(a => a.key === selectedAgent)?.filter
+    const filteredConvs = agentFilter 
+      ? conversations.filter(c => c.agent_name === agentFilter)
+      : conversations
+    
+    filteredConvs.forEach(conv => {
       // Inferir email del session_id si user_email está vacío
       const email = conv.user_email || 
         (conv.session_id?.includes('@') ? conv.session_id : null) ||
@@ -272,7 +286,7 @@ export default function AdminPage() {
     return result.sort((a, b) => 
       new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime()
     )
-  }, [conversations])
+  }, [conversations, selectedAgent])
   
   // Filter groups
   const filteredGroups = useMemo(() => {
@@ -354,7 +368,7 @@ export default function AdminPage() {
                 Admin
               </p>
               <p className="text-sm text-zinc-200 mt-0.5">
-                Agente de Planificación - Web
+                Conversaciones de Agentes
               </p>
             </div>
             <button
@@ -366,8 +380,25 @@ export default function AdminPage() {
             </button>
           </div>
           
-          {/* Filters */}
-          <div className="flex items-center gap-3 mt-4">
+          {/* Agent tabs */}
+          <div className="flex items-center gap-1 mt-4">
+            {AGENTS.map(agent => (
+              <button
+                key={agent.key}
+                onClick={() => setSelectedAgent(agent.key)}
+                className={`h-7 px-3 text-[10px] rounded transition-colors ${
+                  selectedAgent === agent.key 
+                    ? 'bg-zinc-700 text-zinc-200' 
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                }`}
+              >
+                {agent.label}
+              </button>
+            ))}
+          </div>
+          
+          {/* Search */}
+          <div className="flex items-center gap-3 mt-3">
             <input
               type="text"
               value={searchTerm}

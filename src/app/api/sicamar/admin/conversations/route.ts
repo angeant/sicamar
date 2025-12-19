@@ -63,7 +63,7 @@ export async function GET() {
           message_count: count || 0,
           last_user_message: lastUserMsg?.content || null,
           user_email: conv.user_email || null,
-          agent_name: 'Agente de Planificación - Web'
+          agent_name: conv.agent_name || 'Agente de Planificación - Web'
         }
       })
     )

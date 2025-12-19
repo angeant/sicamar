@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { currentUser } from '@clerk/nextjs/server'
 import { supabaseServer } from '@/lib/supabase-server'
 
+const AGENT_NAME = 'Agente de Planificación - Web'
+
 /**
  * GET /api/sicamar/chat/history
  * Carga el historial de la última conversación del usuario autenticado
@@ -32,13 +34,14 @@ export async function GET(request: NextRequest) {
     
     let targetConversationId = conversationId
     
-    // Si no se especifica conversation_id, buscar la última del usuario
+    // Si no se especifica conversation_id, buscar la última del usuario para este agente
     if (!targetConversationId) {
       const { data: lastConv } = await supabaseServer
         .schema('sicamar')
         .from('conversations')
         .select('id')
         .eq('user_email', userEmail)
+        .eq('agent_name', AGENT_NAME)
         .order('last_message_at', { ascending: false })
         .limit(1)
         .single()
