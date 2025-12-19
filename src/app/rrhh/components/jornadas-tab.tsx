@@ -477,21 +477,21 @@ function ModalEdicionJornada({
             )}
           </div>
           
-          {/* Estado del empleado */}
+          {/* Ausencia del empleado */}
           <div>
-            <label className="text-xs font-medium text-neutral-600 block mb-1">Estado</label>
+            <label className="text-xs font-medium text-neutral-600 block mb-1">Ausencia</label>
             <select 
               className="w-full h-8 text-sm border border-neutral-200 rounded px-2"
               value={formData.estado_empleado}
               onChange={e => setFormData(f => ({ ...f, estado_empleado: e.target.value }))}
             >
-              <option value="">Trabajando normal</option>
-              <option value="enfermo">🏥 Enfermo</option>
-              <option value="vacaciones">🏖️ Vacaciones</option>
-              <option value="accidente">🚑 Accidente (ART)</option>
-              <option value="licencia">📋 Licencia</option>
-              <option value="inasistencia">⛔ Inasistencia</option>
-              <option value="ausente">❌ Ausente justificado</option>
+              <option value="">Sin ausencia</option>
+              <option value="enfermo">Enfermo</option>
+              <option value="vacaciones">Vacaciones</option>
+              <option value="accidente">Accidente (ART)</option>
+              <option value="licencia">Licencia</option>
+              <option value="inasistencia">Inasistencia</option>
+              <option value="ausente">Ausente justificado</option>
             </select>
           </div>
           

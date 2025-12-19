@@ -132,3 +132,48 @@
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
 }
+
+/* Animación de celda modificada por el chat */
+@keyframes celda-flash {
+  0% {
+    background-color: rgba(196, 50, 47, 0.25);
+    box-shadow: inset 0 0 0 2px rgba(196, 50, 47, 0.5);
+  }
+  15% {
+    background-color: rgba(196, 50, 47, 0.15);
+    box-shadow: inset 0 0 0 2px rgba(196, 50, 47, 0.3);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.celda-animada {
+  animation: celda-flash 2.5s ease-out forwards;
+  position: relative;
+}
+
+.celda-animada::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 4px;
+  pointer-events: none;
+  animation: celda-glow 2.5s ease-out forwards;
+}
+
+@keyframes celda-glow {
+  0% {
+    box-shadow: 0 0 12px rgba(196, 50, 47, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 6px rgba(196, 50, 47, 0.2);
+  }
+  100% {
+    box-shadow: none;
+  }
+}

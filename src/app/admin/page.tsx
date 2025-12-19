@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 
@@ -28,6 +28,13 @@ interface Conversation {
   messages?: Message[]
   user_email?: string
   agent_name?: string
+}
+
+interface UserGroup {
+  email: string
+  conversations: Conversation[]
+  totalMessages: number
+  lastActive: string
 }
 
 const ALLOWED_EMAIL = 'angelo@kalia.app'
@@ -211,7 +218,6 @@ export default function AdminPage() {
   
   // Filters
   const [searchTerm, setSearchTerm] = useState('')
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'most_messages'>('newest')
   
   const userEmail = user?.primaryEmailAddress?.emailAddress
   const isAuthorized = userEmail === ALLOWED_EMAIL
@@ -270,29 +276,64 @@ export default function AdminPage() {
     )
   }
   
-  // Filter and sort conversations
-  const filteredConversations = conversations
-    .filter(conv => {
-      if (!searchTerm) return true
-      const search = searchTerm.toLowerCase()
-      return (
-        conv.session_id?.toLowerCase().includes(search) ||
-        conv.id?.toLowerCase().includes(search) ||
-        conv.last_user_message?.toLowerCase().includes(search)
-      )
-    })
-    .sort((a, b) => {
-      switch (sortOrder) {
-        case 'newest':
-          return new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime()
-        case 'oldest':
-          return new Date(a.last_message_at || a.created_at).getTime() - new Date(b.last_message_at || b.created_at).getTime()
-        case 'most_messages':
-          return (b.message_count || 0) - (a.message_count || 0)
-        default:
-          return 0
+  // Agrupar conversaciones por usuario
+  const userGroups = useMemo(() => {
+    const groups = new Map<string, Conversation[]>()
+    
+    conversations.forEach(conv => {
+      // Inferir email del session_id si user_email está vacío
+      const email = conv.user_email || 
+        (conv.session_id?.includes('@') ? conv.session_id : null) ||
+        'anónimo'
+      
+      if (!groups.has(email)) {
+        groups.set(email, [])
       }
+      groups.get(email)!.push(conv)
     })
+    
+    // Convertir a array de UserGroup
+    const result: UserGroup[] = Array.from(groups.entries()).map(([email, convs]) => ({
+      email,
+      conversations: convs.sort((a, b) => 
+        new Date(b.last_message_at || b.created_at).getTime() - 
+        new Date(a.last_message_at || a.created_at).getTime()
+      ),
+      totalMessages: convs.reduce((sum, c) => sum + (c.message_count || 0), 0),
+      lastActive: convs.reduce((latest, c) => {
+        const t = c.last_message_at || c.created_at
+        return t > latest ? t : latest
+      }, '1970-01-01')
+    }))
+    
+    // Ordenar grupos por última actividad
+    return result.sort((a, b) => 
+      new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime()
+    )
+  }, [conversations])
+  
+  // Estado para el usuario expandido
+  const [expandedUser, setExpandedUser] = useState<string | null>(null)
+  
+  // Filter and sort conversations
+  const filteredGroups = useMemo(() => {
+    if (!searchTerm) return userGroups
+    
+    const search = searchTerm.toLowerCase()
+    return userGroups
+      .map(group => ({
+        ...group,
+        conversations: group.conversations.filter(conv =>
+          conv.user_email?.toLowerCase().includes(search) ||
+          conv.session_id?.toLowerCase().includes(search) ||
+          conv.last_user_message?.toLowerCase().includes(search)
+        )
+      }))
+      .filter(group => 
+        group.email.toLowerCase().includes(search) ||
+        group.conversations.length > 0
+      )
+  }, [userGroups, searchTerm])
   
   const formatRelativeTime = (timestamp: string) => {
     const now = new Date()
@@ -337,18 +378,9 @@ export default function AdminPage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por session o mensaje..."
+              placeholder="Buscar por email o mensaje..."
               className="flex-1 h-7 bg-zinc-900 border border-zinc-800 rounded px-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
             />
-            <select
-              value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
-              className="h-7 bg-zinc-900 border border-zinc-800 rounded px-2 text-[11px] text-zinc-200 focus:outline-none focus:border-zinc-600"
-            >
-              <option value="newest">Más recientes</option>
-              <option value="oldest">Más antiguas</option>
-              <option value="most_messages">Más mensajes</option>
-            </select>
           </div>
         </div>
       </div>
@@ -362,7 +394,7 @@ export default function AdminPage() {
               <span className="text-[10px] text-zinc-500">Cargando conversaciones...</span>
             </div>
           </div>
-        ) : filteredConversations.length === 0 ? (
+        ) : filteredGroups.length === 0 ? (
           <div className="flex items-center justify-center h-48">
             <div className="text-center">
               <p className="text-[11px] text-zinc-500">
@@ -371,38 +403,31 @@ export default function AdminPage() {
             </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            {filteredConversations.map((conv) => (
-              <button
-                key={conv.id}
-                onClick={() => setSelectedConversation(conv)}
-                className="w-full text-left bg-zinc-900/50 border border-zinc-800/50 rounded-lg p-3 hover:bg-zinc-900 hover:border-zinc-700 transition-colors group"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      {conv.user_email && (
-                        <span className="text-[11px] text-zinc-300 truncate">
-                          {conv.user_email}
-                        </span>
-                      )}
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
-                        {conv.message_count || 0} msg
-                      </span>
+          <div className="space-y-3">
+            {filteredGroups.map((group) => (
+              <div key={group.email} className="border border-zinc-800/50 rounded-lg overflow-hidden">
+                {/* User header - clickeable para expandir */}
+                <button
+                  onClick={() => setExpandedUser(expandedUser === group.email ? null : group.email)}
+                  className="w-full text-left bg-zinc-900/80 hover:bg-zinc-900 px-4 py-3 flex items-center justify-between transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-[11px] text-zinc-400 font-medium uppercase">
+                      {group.email === 'anónimo' ? '?' : group.email.charAt(0)}
                     </div>
-                    <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                      {conv.session_id || conv.id.slice(0, 16)}
-                    </p>
-                    {conv.last_user_message && (
-                      <p className="text-[11px] text-zinc-400 mt-1.5 line-clamp-2">
-                        {conv.last_user_message}
+                    <div>
+                      <p className="text-[12px] text-zinc-200 font-medium">
+                        {group.email}
                       </p>
-                    )}
+                      <p className="text-[10px] text-zinc-500">
+                        {group.conversations.length} conversación{group.conversations.length !== 1 ? 'es' : ''} · {group.totalMessages} mensajes
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-shrink-0 text-right">
-                    <p className="text-[10px] text-zinc-500">
-                      {formatRelativeTime(conv.last_message_at || conv.created_at)}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10px] text-zinc-500">
+                      {formatRelativeTime(group.lastActive)}
+                    </span>
                     <svg 
                       width="12" 
                       height="12" 
@@ -410,13 +435,58 @@ export default function AdminPage() {
                       fill="none" 
                       stroke="currentColor" 
                       strokeWidth="2"
-                      className="text-zinc-600 group-hover:text-zinc-400 ml-auto mt-1 transition-colors"
+                      className={`text-zinc-500 transition-transform ${expandedUser === group.email ? 'rotate-180' : ''}`}
                     >
-                      <path d="M9 18l6-6-6-6" />
+                      <path d="M6 9l6 6 6-6" />
                     </svg>
                   </div>
-                </div>
-              </button>
+                </button>
+                
+                {/* Conversaciones del usuario */}
+                {expandedUser === group.email && (
+                  <div className="border-t border-zinc-800/50 divide-y divide-zinc-800/30">
+                    {group.conversations.map((conv) => (
+                      <button
+                        key={conv.id}
+                        onClick={() => setSelectedConversation(conv)}
+                        className="w-full text-left px-4 py-2.5 hover:bg-zinc-800/30 transition-colors group flex items-center justify-between"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400">
+                              {conv.message_count || 0} msg
+                            </span>
+                            <span className="text-[9px] text-zinc-600 font-mono">
+                              {conv.id.slice(0, 8)}...
+                            </span>
+                          </div>
+                          {conv.last_user_message && (
+                            <p className="text-[11px] text-zinc-400 mt-1 line-clamp-1">
+                              {conv.last_user_message}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-[10px] text-zinc-600">
+                            {formatRelativeTime(conv.last_message_at || conv.created_at)}
+                          </span>
+                          <svg 
+                            width="10" 
+                            height="10" 
+                            viewBox="0 0 24 24" 
+                            fill="none" 
+                            stroke="currentColor" 
+                            strokeWidth="2"
+                            className="text-zinc-700 group-hover:text-zinc-400 transition-colors"
+                          >
+                            <path d="M9 18l6-6-6-6" />
+                          </svg>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -424,8 +494,7 @@ export default function AdminPage() {
         {/* Stats */}
         <div className="mt-6 pt-4 border-t border-zinc-800">
           <p className="text-[10px] text-zinc-600 text-center">
-            {filteredConversations.length} conversación{filteredConversations.length !== 1 ? 'es' : ''}
-            {searchTerm && ` (filtradas de ${conversations.length})`}
+            {filteredGroups.length} usuario{filteredGroups.length !== 1 ? 's' : ''} · {conversations.length} conversación{conversations.length !== 1 ? 'es' : ''}
           </p>
         </div>
       </div>

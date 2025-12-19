@@ -1,11 +1,10 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import * as jose from 'jose'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
+import { supabaseServer } from '@/lib/supabase-server'
 
 // ============================================================================
-// MCP CLIENT
+// MCP CLIENT - REST endpoint (stateless, Cloud Run compatible)
 // ============================================================================
 
 async function generateMcpToken(): Promise<string> {
@@ -18,10 +17,10 @@ async function generateMcpToken(): Promise<string> {
     agent_id: 'sicamar-planificacion-agent',
     mcp: 'sicamar-mcp',
     tools: [
-      'sicamar.jornadas.editar',
-      'sicamar.jornadas.bulk',
-      'sicamar.jornadas.limpiar',
-      'sicamar.jornadas.consultar',
+      'sicamar.planning.editar',
+      'sicamar.planning.consultar',
+      'sicamar.planning.bulk',
+      'sicamar.planning.limpiar',
       'sicamar.empleados.buscar'
     ],
   })
@@ -33,49 +32,58 @@ async function generateMcpToken(): Promise<string> {
   return token
 }
 
-let mcpClient: Client | null = null
-let mcpConnecting: Promise<Client> | null = null
-
-async function getMcpClient(): Promise<Client> {
-  if (mcpClient) return mcpClient
-  if (mcpConnecting) return mcpConnecting
-  
-  mcpConnecting = (async () => {
+/**
+ * Calls MCP tool via REST endpoint /tools/call
+ * This is stateless and works perfectly with Cloud Run (no SSE issues)
+ */
+async function callMcpTool(mcpToolName: string, input: Record<string, unknown>): Promise<string> {
+  try {
     const baseUrl = process.env.MCP_BASE_URL
     if (!baseUrl) throw new Error('MCP_BASE_URL not configured')
     
     const token = await generateMcpToken()
-    const transport = new SSEClientTransport(
-      new URL(`${baseUrl}/sse`),
-      { requestInit: { headers: { Authorization: `Bearer ${token}` } } }
-    )
     
-    const client = new Client({ name: 'sicamar-planificacion', version: '1.0.0' })
-    await client.connect(transport)
-    mcpClient = client
-    return client
-  })()
-  
-  return mcpConnecting
-}
-
-async function callMcpTool(mcpToolName: string, input: Record<string, unknown>): Promise<string> {
-  try {
-    const client = await getMcpClient()
-    const result = await client.callTool({ name: mcpToolName, arguments: input })
+    const response = await fetch(`${baseUrl}/tools/call`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        tool: mcpToolName, 
+        input 
+      })
+    })
     
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('MCP REST error:', response.status, errorText)
+      return JSON.stringify({ 
+        success: false, 
+        error: `MCP error ${response.status}: ${errorText}` 
+      })
+    }
+    
+    const result = await response.json()
+    
+    // El endpoint REST devuelve directamente el resultado
+    // Si tiene content array (formato MCP), extraer el texto
     if (result.content && Array.isArray(result.content)) {
       const textContent = result.content.find((c: { type: string }) => c.type === 'text')
       if (textContent && 'text' in textContent) {
         return textContent.text as string
       }
     }
-    return JSON.stringify(result)
+    
+    // Si ya es el resultado directo, devolverlo como JSON string
+    return typeof result === 'string' ? result : JSON.stringify(result)
+    
   } catch (error) {
     console.error('MCP tool error:', error)
-    mcpClient = null
-    mcpConnecting = null
-    return JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error calling MCP tool' })
+    return JSON.stringify({ 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error calling MCP tool' 
+    })
   }
 }
 
@@ -215,9 +223,23 @@ Por ley deberían trabajar 6 horas, trabajan 8.
 Compensación: 1.5 horas de su valor hora por cada día en sector caliente.
 </calorias_uom>
 
-<estados_ausencia>
-trabaja, vacaciones, enfermedad, accidente, suspendido, licencia, art, falta
-</estados_ausencia>
+<estructura_datos>
+Cada planificación tiene:
+- employee_id: ID del empleado
+- operational_date: Fecha de SALIDA (fecha contable)
+- status: WORKING, ABSENT, REST
+- absence_reason: SICK, VACATION, ACCIDENT, LICENSE, SUSPENDED, ART, ABSENT_UNJUSTIFIED (solo si status=ABSENT)
+- normal_entry_at: Datetime de entrada normal (ej: "2025-12-20 06:00")
+- normal_exit_at: Datetime de salida normal (ej: "2025-12-20 14:00")
+- extra_entry_at: Si entra ANTES de lo normal (horas extra)
+- extra_exit_at: Si sale DESPUÉS de lo normal (horas extra)
+
+IMPORTANTE: Para turnos nocturnos (22:00-06:00), normal_entry_at es del día ANTERIOR.
+Ejemplo turno noche del martes 20: 
+  operational_date: "2025-12-20"
+  normal_entry_at: "2025-12-19 22:00" (lunes noche)
+  normal_exit_at: "2025-12-20 06:00" (martes mañana)
+</estructura_datos>
 
 <comportamiento>
 - Sé conciso y directo, como un colega de laburo.
@@ -231,20 +253,17 @@ trabaja, vacaciones, enfermedad, accidente, suspendido, licencia, art, falta
 
 <tools_uso>
 1. sicamar_empleados_buscar: SIEMPRE primero si mencionan nombre.
-2. sicamar_jornadas_consultar: Ver jornadas, filtrar por estado.
-3. sicamar_jornadas_editar: Modificar UNA jornada (1 empleado, 1 fecha).
-   - Turno rápido: solo "turno" (mañana/tarde/noche)
-   - Horario custom: "hora_entrada" + "hora_salida"
-   - Ausencia: solo "estado" (vacaciones, enfermedad, etc.)
-4. sicamar_jornadas_bulk: PREFERÍ ESTA para operaciones masivas.
+2. sicamar_planning_consultar: Ver planificaciones, filtrar por status/absence_reason.
+3. sicamar_planning_editar: Modificar UNA planificación (1 empleado, 1 fecha).
+   - status: WORKING, ABSENT, REST
+   - Para WORKING: turno (mañana/tarde/noche) O hora_entrada + hora_salida
+   - Para ABSENT: absence_reason (SICK, VACATION, ACCIDENT, LICENSE, SUSPENDED, ART, ABSENT_UNJUSTIFIED)
+   - Para REST: solo status
+4. sicamar_planning_bulk: PREFERÍ ESTA para operaciones masivas.
    - Múltiples empleados: pasá array de legajos ["245", "332", "118"]
    - Rango de fechas: fecha_desde + fecha_hasta
-   - Mismo turno/estado para todos
-   - Ejemplos: "equipo de vacaciones", "turno mañana toda la semana", "3 empleados al turno noche L-V"
-5. sicamar_jornadas_limpiar: Elimina/limpia jornadas (el empleado queda sin turno asignado).
-   - Un empleado, un día: legajos: ["95"], fecha_desde: "2025-12-15"
-   - Un empleado, varios días: legajos: ["95"], fecha_desde + fecha_hasta
-   - Varios empleados: legajos: ["95", "245", "332"], fecha_desde + fecha_hasta
+   - Mismo status/turno para todos
+5. sicamar_planning_limpiar: Elimina planificaciones (el empleado queda sin asignar).
 </tools_uso>`
 
 // ============================================================================
@@ -266,51 +285,61 @@ const TOOLS: Anthropic.Tool[] = [
     }
   },
   {
-    name: 'sicamar_jornadas_consultar',
-    description: 'Consulta jornadas planificadas. Puede filtrar por legajo, fechas y estado.',
+    name: 'sicamar_planning_consultar',
+    description: 'Consulta planificaciones. Puede filtrar por legajo, fechas, status y razón de ausencia.',
     input_schema: {
       type: 'object',
       properties: {
         legajo: { type: 'string', description: 'Legajo del empleado (opcional)' },
         fecha_desde: { type: 'string', description: 'YYYY-MM-DD' },
         fecha_hasta: { type: 'string', description: 'YYYY-MM-DD (opcional)' },
-        estado: { 
+        status: { 
           type: 'string', 
-          enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
-          description: 'Filtrar por estado' 
+          enum: ['WORKING', 'ABSENT', 'REST'],
+          description: 'Filtrar por status' 
+        },
+        absence_reason: {
+          type: 'string',
+          enum: ['SICK', 'VACATION', 'ACCIDENT', 'LICENSE', 'SUSPENDED', 'ART', 'ABSENT_UNJUSTIFIED'],
+          description: 'Filtrar por razón de ausencia (solo si status=ABSENT)'
         }
       },
       required: ['fecha_desde']
     }
   },
   {
-    name: 'sicamar_jornadas_editar',
-    description: 'Edita la jornada de UN empleado para UNA fecha. Para múltiples empleados o fechas, usá sicamar_jornadas_bulk.',
+    name: 'sicamar_planning_editar',
+    description: 'Edita la planificación de UN empleado para UNA fecha (operational_date). Para múltiples empleados o fechas, usá sicamar_planning_bulk.',
     input_schema: {
       type: 'object',
       properties: {
         legajo: { type: 'string', description: 'Número de legajo' },
-        fecha: { type: 'string', description: 'YYYY-MM-DD' },
+        operational_date: { type: 'string', description: 'Fecha operativa YYYY-MM-DD (fecha de SALIDA para turnos nocturnos)' },
+        status: { 
+          type: 'string', 
+          enum: ['WORKING', 'ABSENT', 'REST'],
+          description: 'Estado del empleado para ese día'
+        },
         turno: { 
           type: 'string', 
           enum: ['mañana', 'tarde', 'noche'],
-          description: 'Turno rápido: mañana (06-14), tarde (14-22), noche (22-06)'
+          description: 'Turno rápido (solo si status=WORKING): mañana (06-14), tarde (14-22), noche (22-06)'
         },
-        hora_entrada: { type: 'string', description: 'HH:MM para horario custom' },
-        hora_salida: { type: 'string', description: 'HH:MM para horario custom' },
-        estado: { 
+        hora_entrada: { type: 'string', description: 'HH:MM para horario custom (solo si status=WORKING)' },
+        hora_salida: { type: 'string', description: 'HH:MM para horario custom (solo si status=WORKING)' },
+        absence_reason: { 
           type: 'string', 
-          enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
-          description: 'Estado de ausencia (ignora turno y horarios)'
+          enum: ['SICK', 'VACATION', 'ACCIDENT', 'LICENSE', 'SUSPENDED', 'ART', 'ABSENT_UNJUSTIFIED'],
+          description: 'Razón de ausencia (solo si status=ABSENT)'
         },
         notas: { type: 'string', description: 'Notas opcionales' }
       },
-      required: ['legajo', 'fecha']
+      required: ['legajo', 'operational_date', 'status']
     }
   },
   {
-    name: 'sicamar_jornadas_bulk',
-    description: 'Edita jornadas en MASA para múltiples empleados y/o múltiples fechas en una sola llamada. Ideal para: poner varios empleados de vacaciones, asignar turno a un equipo por toda la semana, cambiar horario de un grupo.',
+    name: 'sicamar_planning_bulk',
+    description: 'Edita planificaciones en MASA para múltiples empleados y/o múltiples fechas en una sola llamada. Ideal para: poner varios empleados de vacaciones, asignar turno a un equipo por toda la semana, cambiar horario de un grupo.',
     input_schema: {
       type: 'object',
       properties: {
@@ -321,26 +350,31 @@ const TOOLS: Anthropic.Tool[] = [
         },
         fecha_desde: { type: 'string', description: 'Fecha inicio YYYY-MM-DD' },
         fecha_hasta: { type: 'string', description: 'Fecha fin YYYY-MM-DD (inclusive)' },
+        status: { 
+          type: 'string', 
+          enum: ['WORKING', 'ABSENT', 'REST'],
+          description: 'Estado para todos'
+        },
         turno: { 
           type: 'string', 
           enum: ['mañana', 'tarde', 'noche'],
-          description: 'Turno rápido para todos'
+          description: 'Turno rápido para todos (solo si status=WORKING)'
         },
         hora_entrada: { type: 'string', description: 'HH:MM para horario custom' },
         hora_salida: { type: 'string', description: 'HH:MM para horario custom' },
-        estado: { 
+        absence_reason: { 
           type: 'string', 
-          enum: ['trabaja', 'vacaciones', 'enfermedad', 'accidente', 'suspendido', 'licencia', 'art', 'falta'],
-          description: 'Estado de ausencia para todos'
+          enum: ['SICK', 'VACATION', 'ACCIDENT', 'LICENSE', 'SUSPENDED', 'ART', 'ABSENT_UNJUSTIFIED'],
+          description: 'Razón de ausencia para todos (solo si status=ABSENT)'
         },
         notas: { type: 'string', description: 'Notas opcionales' }
       },
-      required: ['legajos', 'fecha_desde', 'fecha_hasta']
+      required: ['legajos', 'fecha_desde', 'fecha_hasta', 'status']
     }
   },
   {
-    name: 'sicamar_jornadas_limpiar',
-    description: 'Elimina/limpia jornadas planificadas. El empleado queda sin turno asignado (vacío/disponible). Ideal para: resetear planificación, liberar a alguien de su turno, borrar asignaciones incorrectas.',
+    name: 'sicamar_planning_limpiar',
+    description: 'Elimina planificaciones. El empleado queda sin nada asignado para esa fecha (vacío/disponible). Ideal para: resetear planificación, liberar a alguien de su asignación, borrar asignaciones incorrectas.',
     input_schema: {
       type: 'object',
       properties: {
@@ -360,19 +394,113 @@ const TOOLS: Anthropic.Tool[] = [
 // Mapeo de tools a MCP
 const TOOL_TO_MCP: Record<string, string> = {
   'sicamar_empleados_buscar': 'sicamar.empleados.buscar',
-  'sicamar_jornadas_consultar': 'sicamar.jornadas.consultar',
-  'sicamar_jornadas_editar': 'sicamar.jornadas.editar',
-  'sicamar_jornadas_bulk': 'sicamar.jornadas.bulk',
-  'sicamar_jornadas_limpiar': 'sicamar.jornadas.limpiar'
+  'sicamar_planning_consultar': 'sicamar.planning.consultar',
+  'sicamar_planning_editar': 'sicamar.planning.editar',
+  'sicamar_planning_bulk': 'sicamar.planning.bulk',
+  'sicamar_planning_limpiar': 'sicamar.planning.limpiar'
 }
 
 // ============================================================================
 // API ROUTE
 // ============================================================================
 
+// ============================================================================
+// CONVERSATION PERSISTENCE
+// ============================================================================
+
+async function getOrCreateConversation(conversationId: string | null, userEmail?: string): Promise<string> {
+  // 1. Si hay un conversation_id válido, verificar que existe y usarlo
+  if (conversationId) {
+    const { data: existing } = await supabaseServer
+      .schema('sicamar')
+      .from('conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .single()
+    
+    if (existing) {
+      // Update last_message_at
+      await supabaseServer
+        .schema('sicamar')
+        .from('conversations')
+        .update({ 
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', conversationId)
+      
+      return conversationId
+    }
+  }
+  
+  // 2. Si hay email, buscar la última conversación del usuario
+  if (userEmail) {
+    const { data: lastConv } = await supabaseServer
+      .schema('sicamar')
+      .from('conversations')
+      .select('id')
+      .eq('user_email', userEmail)
+      .order('last_message_at', { ascending: false })
+      .limit(1)
+      .single()
+    
+    if (lastConv) {
+      // Update last_message_at y retornar
+      await supabaseServer
+        .schema('sicamar')
+        .from('conversations')
+        .update({ 
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', lastConv.id)
+      
+      return lastConv.id
+    }
+  }
+  
+  // 3. Crear nueva conversación
+  const { data: newConv, error } = await supabaseServer
+    .schema('sicamar')
+    .from('conversations')
+    .insert({
+      session_id: userEmail || `anon_${Date.now()}`, // Usar email como session_id para mejor tracking
+      user_email: userEmail || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      last_message_at: new Date().toISOString()
+    })
+    .select('id')
+    .single()
+  
+  if (error || !newConv) {
+    console.error('Error creating conversation:', error)
+    throw new Error('Failed to create conversation')
+  }
+  
+  return newConv.id
+}
+
+async function saveMessage(conversationId: string, role: 'user' | 'assistant', content: string, toolCalls?: Array<{ name: string; input: unknown; result?: unknown }>) {
+  const { error } = await supabaseServer
+    .schema('sicamar')
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      role,
+      content,
+      tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : null,
+      created_at: new Date().toISOString()
+    })
+  
+  if (error) {
+    console.error('Error saving message:', error)
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { messages, context } = await request.json()
+    const { messages, context, conversation_id, user_email } = await request.json()
     
     if (!process.env.ANTHROPIC_CLAUDE_KEY) {
       return new Response(JSON.stringify({ error: 'ANTHROPIC_CLAUDE_KEY not configured' }), {
@@ -383,28 +511,113 @@ export async function POST(request: NextRequest) {
     
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_CLAUDE_KEY })
     
+    // Get or create conversation for persistence (prioriza email del usuario)
+    let activeConversationId: string | null = null
+    
+    try {
+      activeConversationId = await getOrCreateConversation(conversation_id, user_email)
+    } catch (e) {
+      console.error('Failed to get/create conversation:', e)
+      // Continue without persistence - don't block the chat
+    }
+    
+    // Save the user message
+    const lastUserMessage = messages[messages.length - 1]
+    if (activeConversationId && lastUserMessage?.role === 'user') {
+      await saveMessage(activeConversationId, 'user', lastUserMessage.content)
+    }
+    
     // Construir contexto dinámico (va en user message según best practices)
     let userContextPrefix = ''
-    if (context?.fechasSemana && context.fechasSemana.length === 7) {
+    const hoy = new Date()
+    const hoyStr = hoy.toISOString().split('T')[0]
+    
+    // Calcular el lunes de la semana actual
+    const lunesActual = new Date(hoy)
+    const diaSemana = lunesActual.getDay()
+    const diff = diaSemana === 0 ? -6 : 1 - diaSemana
+    lunesActual.setDate(lunesActual.getDate() + diff)
+    const lunesActualStr = lunesActual.toISOString().split('T')[0]
+    
+    // Calcular el lunes de la semana siguiente
+    const lunesSiguiente = new Date(lunesActual)
+    lunesSiguiente.setDate(lunesSiguiente.getDate() + 7)
+    const lunesSiguienteStr = lunesSiguiente.toISOString().split('T')[0]
+    
+    if (context?.fechasSemana && context.fechasSemana.length >= 7) {
       const diasNombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-      const fechasConDias = context.fechasSemana.map((f: string, i: number) => `${diasNombres[i]}: ${f}`)
-      const hoy = new Date().toISOString().split('T')[0]
+      const fechasConDias = context.fechasSemana.slice(0, 7).map((f: string, i: number) => `${diasNombres[i]}: ${f}`)
       
-      userContextPrefix = `<contexto_pantalla>
-Semana que está viendo el usuario:
+      // Determinar qué semana está viendo el usuario respecto a hoy
+      const primerDiaVista = context.fechasSemana[0]
+      let descripcionSemana = 'la semana visible en pantalla'
+      
+      if (primerDiaVista === lunesActualStr) {
+        descripcionSemana = 'LA SEMANA ACTUAL (esta semana)'
+      } else if (primerDiaVista === lunesSiguienteStr) {
+        descripcionSemana = 'LA SEMANA SIGUIENTE (la próxima semana)'
+      } else if (primerDiaVista < lunesActualStr) {
+        descripcionSemana = 'UNA SEMANA PASADA'
+      } else {
+        descripcionSemana = 'UNA SEMANA FUTURA'
+      }
+      
+      userContextPrefix = `<contexto_temporal>
+FECHA DE HOY: ${hoyStr} (${diasNombres[hoy.getDay() === 0 ? 6 : hoy.getDay() - 1]})
+
+SEMANA ACTUAL (donde cae hoy):
+- Lunes: ${lunesActualStr}
+- Domingo: ${new Date(new Date(lunesActualStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+
+SEMANA EN PANTALLA (${descripcionSemana}):
 ${fechasConDias.join('\n')}
 
-Fecha de hoy: ${hoy}
-Cuando diga "el lunes", "el martes", etc., usá estas fechas directamente.
-</contexto_pantalla>
+INTERPRETACIÓN DE REFERENCIAS TEMPORALES:
+- "esta semana" = semana del ${lunesActualStr} al ${new Date(new Date(lunesActualStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+- "la semana que viene" / "la próxima" / "la siguiente" = semana del ${lunesSiguienteStr} al ${new Date(new Date(lunesSiguienteStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+- "el lunes", "el martes", etc. sin más contexto = los días de "esta semana"
+</contexto_temporal>
+
+`
+    } else {
+      // Sin fechas de semana, al menos dar la fecha actual
+      userContextPrefix = `<contexto_temporal>
+FECHA DE HOY: ${hoyStr}
+SEMANA ACTUAL: Lunes ${lunesActualStr} a Domingo ${new Date(new Date(lunesActualStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+SEMANA SIGUIENTE: Lunes ${lunesSiguienteStr} a Domingo ${new Date(new Date(lunesSiguienteStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+</contexto_temporal>
 
 `
     }
     
-    // Preparar mensajes - inyectar contexto en el primer mensaje del usuario
+    // Agregar contexto de selección si existe
+    if (context?.seleccion && context.seleccion.legajos?.length > 0) {
+      const sel = context.seleccion
+      const legajosStr = sel.legajos.join(', ')
+      const nombresStr = sel.nombres.join('; ')
+      const fechasStr = sel.fechas.join(', ')
+      
+      userContextPrefix += `<seleccion_usuario>
+El usuario ha seleccionado celdas específicas en la tabla de planificación.
+APLICÁ LA ACCIÓN QUE PIDA A ESTA SELECCIÓN:
+
+LEGAJOS: [${legajosStr}]
+NOMBRES: ${nombresStr}
+FECHAS: [${fechasStr}]
+
+INSTRUCCIÓN: Usá estos legajos y fechas directamente en las tools. 
+Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selección usando sicamar_planning_bulk.
+</seleccion_usuario>
+
+`
+    }
+    
+    // Preparar mensajes - inyectar contexto en el ÚLTIMO mensaje del usuario
+    // Así siempre tiene el contexto temporal actualizado aunque cambie la semana en pantalla
+    const lastUserIdx = messages.map((m: { role: string }) => m.role).lastIndexOf('user')
     const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg: { role: string; content: string }, idx: number) => ({
       role: msg.role as 'user' | 'assistant',
-      content: idx === 0 && msg.role === 'user' && userContextPrefix 
+      content: idx === lastUserIdx && msg.role === 'user' && userContextPrefix 
         ? userContextPrefix + msg.content 
         : msg.content
     }))
@@ -413,9 +626,23 @@ Cuando diga "el lunes", "el martes", etc., usá estas fechas directamente.
     const stream = new TransformStream()
     const writer = stream.writable.getWriter()
     
+    // Send conversation_id to client first (so it can maintain persistence)
+    const sendConversationId = activeConversationId 
+      ? `data: ${JSON.stringify({ type: 'conversation_id', id: activeConversationId })}\n\n`
+      : ''
+    
+    // Track final response for persistence
+    let finalAssistantText = ''
+    let finalToolCalls: Array<{ name: string; input: unknown; result?: unknown }> = []
+    
     // Agentic loop con streaming
     ;(async () => {
       try {
+        // Send conversation_id first
+        if (sendConversationId) {
+          await writer.write(encoder.encode(sendConversationId))
+        }
+        
         let currentMessages = [...anthropicMessages]
         let continueLoop = true
         
@@ -461,6 +688,7 @@ Cuando diga "el lunes", "el martes", etc., usá estas fechas directamente.
               // Text delta
               if ('text' in delta && delta.text) {
                 currentText += delta.text
+                finalAssistantText += delta.text
                 await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'text', content: delta.text })}\n\n`))
               }
               
@@ -543,6 +771,13 @@ Cuando diga "el lunes", "el martes", etc., usá estas fechas directamente.
                 result: { success: parsed.success !== false, data: parsed }
               })}\n\n`))
               
+              // Track tool calls for persistence
+              finalToolCalls.push({
+                name: tr.name,
+                input: currentToolUses.find(t => t.id === tr.id)?.input,
+                result: parsed
+              })
+              
               toolResultContents.push({
                 type: 'tool_result',
                 tool_use_id: tr.id,
@@ -557,6 +792,16 @@ Cuando diga "el lunes", "el martes", etc., usá estas fechas directamente.
             // No hay más tool calls, terminamos
             continueLoop = false
           }
+        }
+        
+        // Save assistant message to database
+        if (activeConversationId && finalAssistantText) {
+          await saveMessage(
+            activeConversationId, 
+            'assistant', 
+            finalAssistantText, 
+            finalToolCalls.length > 0 ? finalToolCalls : undefined
+          )
         }
         
         await writer.write(encoder.encode('data: [DONE]\n\n'))

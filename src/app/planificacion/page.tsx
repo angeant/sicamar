@@ -15,28 +15,31 @@ interface Empleado {
   categoria: string | null
 }
 
-interface JornadaDiaria {
+type PlanningStatus = 'WORKING' | 'ABSENT' | 'REST'
+type AbsenceReason = 'SICK' | 'VACATION' | 'ACCIDENT' | 'LICENSE' | 'SUSPENDED' | 'ART' | 'ABSENT_UNJUSTIFIED'
+
+interface DailyPlanning {
   id?: number
-  empleado_id: number
-  fecha: string
-  turno_asignado: string | null
-  estado_empleado: string | null
-  horas_asignadas: number
-  horas_extra_50: number
-  horas_extra_100: number
-  hora_entrada_asignada?: string | null
-  hora_salida_asignada?: string | null
+  employee_id: number
+  operational_date: string
+  status: PlanningStatus
+  absence_reason?: AbsenceReason | null
+  normal_entry_at?: string | null
+  normal_exit_at?: string | null
+  extra_entry_at?: string | null
+  extra_exit_at?: string | null
+  notes?: string | null
 }
 
-interface EmpleadoConJornadas {
+interface EmpleadoConPlanificacion {
   empleado: Empleado
-  jornadas: Record<string, JornadaDiaria>
+  planificacion: Record<string, DailyPlanning>
 }
 
 interface CeldaSeleccionada {
   empleado: Empleado
   fecha: string
-  jornada: JornadaDiaria | null
+  planning: DailyPlanning | null
   rect: { top: number; left: number; width: number }
 }
 
@@ -47,17 +50,34 @@ const HORARIOS_TURNO: Record<string, { entrada: string; salida: string }> = {
   'N': { entrada: '22:00', salida: '06:00' },
 }
 
-// Opciones de estado
-const ESTADOS_EMPLEADO = [
-  { value: '', label: 'Trabaja' },
-  { value: 'VAC', label: 'Vacaciones' },
-  { value: 'ENF', label: 'Enfermedad' },
-  { value: 'ACC', label: 'Accidente' },
-  { value: 'SUS', label: 'Suspendido' },
-  { value: 'LIC', label: 'Licencia' },
-  { value: 'ART', label: 'ART' },
-  { value: 'FLT', label: 'Falta' },
+// Opciones de status
+const STATUS_OPTIONS: { value: PlanningStatus | ''; label: string }[] = [
+  { value: 'WORKING', label: 'Trabaja' },
+  { value: 'ABSENT', label: 'Ausente' },
+  { value: 'REST', label: 'Franco' },
 ]
+
+// Opciones de ausencia (solo si status = ABSENT)
+const ABSENCE_REASONS: { value: AbsenceReason; label: string }[] = [
+  { value: 'VACATION', label: 'Vacaciones' },
+  { value: 'SICK', label: 'Enfermedad' },
+  { value: 'ACCIDENT', label: 'Accidente' },
+  { value: 'LICENSE', label: 'Licencia' },
+  { value: 'SUSPENDED', label: 'Suspendido' },
+  { value: 'ART', label: 'ART' },
+  { value: 'ABSENT_UNJUSTIFIED', label: 'Falta injustificada' },
+]
+
+// Labels cortos para mostrar en celdas
+const ABSENCE_LABELS: Record<AbsenceReason, string> = {
+  'VACATION': 'Vac',
+  'SICK': 'Enf',
+  'ACCIDENT': 'Acc',
+  'LICENSE': 'Lic',
+  'SUSPENDED': 'Sus',
+  'ART': 'ART',
+  'ABSENT_UNJUSTIFIED': 'Flt',
+}
 
 // Helper para obtener el lunes de una semana
 function getLunesDeSemana(fecha: Date): Date {
@@ -104,6 +124,27 @@ const DIAS_LARGOS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sáb
 function formatHora(hora: string | null | undefined, soloHora: boolean = false): string {
   if (!hora) return ''
   return soloHora ? hora.slice(0, 2) : hora.slice(0, 5)
+}
+
+// Extraer hora HH:MM de un datetime
+// Los timestamps vienen sin timezone desde Postgres (ej: "2025-12-20 06:00:00")
+// Ya están en hora de Argentina, solo extraemos la parte de tiempo
+function extractTimeFromDatetime(datetime: string): string {
+  if (!datetime) return '00:00'
+  
+  try {
+    // Formato: "2025-12-20 06:00:00" o "2025-12-20T06:00:00"
+    const timePart = datetime.includes('T') 
+      ? datetime.split('T')[1] 
+      : datetime.split(' ')[1]
+    
+    if (!timePart) return '00:00'
+    
+    const [hours, minutes] = timePart.split(':')
+    return `${hours?.padStart(2, '0') || '00'}:${minutes?.padStart(2, '0') || '00'}`
+  } catch {
+    return '00:00'
+  }
 }
 
 // Detectar si el horario cruza al día siguiente (entrada > salida = entrada es del día anterior)
@@ -222,37 +263,44 @@ function HorasVisualizacion({
   )
 }
 
-// Obtener estilo por estado
-function getEstadoStyle(estado: string): { text: string; label: string } {
-  const e = estado.toLowerCase()
-  if (e.includes('vac')) return { text: 'text-neutral-400', label: 'vac' }
-  if (e.includes('enf')) return { text: 'text-neutral-400', label: 'enf' }
-  if (e.includes('acc')) return { text: 'text-neutral-400', label: 'acc' }
-  if (e.includes('sus')) return { text: 'text-neutral-400', label: 'sus' }
-  if (e.includes('lic')) return { text: 'text-neutral-400', label: 'lic' }
-  if (e.includes('art')) return { text: 'text-neutral-400', label: 'art' }
-  if (e.includes('flt')) return { text: 'text-neutral-400', label: 'flt' }
-  return { text: 'text-neutral-400', label: estado.slice(0, 3).toLowerCase() }
-}
-
 export default function PlanificacionPage() {
   const { isSignedIn, isLoaded } = useAuth()
   const { user } = useUser()
   const [isSicamarMember, setIsSicamarMember] = useState<boolean | null>(null)
   
-  const [empleados, setEmpleados] = useState<EmpleadoConJornadas[]>([])
+  const [empleados, setEmpleados] = useState<EmpleadoConPlanificacion[]>([])
   const [loading, setLoading] = useState(true)
-  const [tipoVista, setTipoVista] = useState<TipoVista>('semana')
-  const [inicioVista, setInicioVista] = useState<Date>(getLunesDeSemana(new Date()))
+  const [tipoVista, setTipoVista] = useState<TipoVista>('quincena')
+  const [inicioVista, setInicioVista] = useState<Date>(() => {
+    // Iniciar en quincena por defecto
+    const hoy = new Date()
+    const dia = hoy.getDate()
+    const inicio = dia <= 15 ? 1 : 16
+    return new Date(hoy.getFullYear(), hoy.getMonth(), inicio)
+  })
   const [fechas, setFechas] = useState<string[]>([])
   const [celdaSeleccionada, setCeldaSeleccionada] = useState<CeldaSeleccionada | null>(null)
   const [guardando, setGuardando] = useState(false)
   
+  // Animación de celdas modificadas
+  const [celdasAnimadas, setCeldasAnimadas] = useState<Set<string>>(new Set())
+  const empleadosRef = useRef<EmpleadoConPlanificacion[]>([])
+  
+  // Selección múltiple para el chat
+  interface ChatSelection {
+    empleados: { id: number; legajo: string; nombre: string }[]
+    fechas: string[]
+  }
+  const [chatSelection, setChatSelection] = useState<ChatSelection | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState<{ empleadoIdx: number; fechaIdx: number } | null>(null)
+  const [dragEnd, setDragEnd] = useState<{ empleadoIdx: number; fechaIdx: number } | null>(null)
+  
   // Form state para edición
-  const [formTurno, setFormTurno] = useState<string>('')
-  const [formEstado, setFormEstado] = useState<string>('')
-  const [formHoraEntrada, setFormHoraEntrada] = useState<string>('')
-  const [formHoraSalida, setFormHoraSalida] = useState<string>('')
+  const [formStatus, setFormStatus] = useState<PlanningStatus>('WORKING')
+  const [formAbsenceReason, setFormAbsenceReason] = useState<string>('')
+  const [formHoraEntrada, setFormHoraEntrada] = useState<string>('06:00')
+  const [formHoraSalida, setFormHoraSalida] = useState<string>('14:00')
   
   const popoverRef = useRef<HTMLDivElement>(null)
   
@@ -285,109 +333,101 @@ export default function PlanificacionPage() {
       const empData = await empRes.json()
       const empleadosJornal = (empData.empleados || []).filter((e: Empleado & { clase: string }) => e.clase === 'Jornal')
       
-      // Cargar jornadas de la vista + día anterior (para turnos nocturnos)
-      const fechaAnteriorAlInicio = new Date(fechasVista[0] + 'T12:00:00')
-      fechaAnteriorAlInicio.setDate(fechaAnteriorAlInicio.getDate() - 1)
-      const fechaAnteriorStr = fechaAnteriorAlInicio.toISOString().split('T')[0]
+      // Cargar planificaciones del período
+      const planRes = await fetch(`/api/sicamar/planning?desde=${fechasVista[0]}&hasta=${fechasVista[fechasVista.length - 1]}`)
+      const planData = await planRes.json()
       
-      const jorRes = await fetch(`/api/sicamar/jornadas?desde=${fechaAnteriorStr}&hasta=${fechasVista[fechasVista.length - 1]}&solo_planificado=true`)
-      const jorData = await jorRes.json()
-      
-      // Mapear jornadas por empleado_id y fecha
-      const jornadasMap = new Map<number, Map<string, JornadaDiaria>>()
-      for (const j of jorData.data || []) {
-        if (!jornadasMap.has(j.empleado_id)) {
-          jornadasMap.set(j.empleado_id, new Map())
+      // Mapear planificaciones por employee_id y operational_date
+      const planningMap = new Map<number, Map<string, DailyPlanning>>()
+      for (const p of planData.data || []) {
+        if (!planningMap.has(p.employee_id)) {
+          planningMap.set(p.employee_id, new Map())
         }
-        jornadasMap.get(j.empleado_id)!.set(j.fecha, j)
+        planningMap.get(p.employee_id)!.set(p.operational_date, p)
       }
       
-      // Cargar estados de empleados (VAC, ENF, etc)
-      const estRes = await fetch('/api/sicamar/empleados/estados?vigentes=true')
-      const estData = await estRes.json()
-      
-      // Mapear estados por empleado_id
-      const estadosMap = new Map<number, { tipo: string; desde: string; hasta: string }[]>()
-      for (const e of estData || []) {
-        if (!estadosMap.has(e.empleado_id)) {
-          estadosMap.set(e.empleado_id, [])
-        }
-        estadosMap.get(e.empleado_id)!.push({
-          tipo: e.tipo_estado,
-          desde: e.fecha_inicio,
-          hasta: e.fecha_fin || '2099-12-31'
-        })
-      }
-      
-      // Combinar - IMPORTANTE: Los turnos nocturnos se almacenan con fecha = día de ENTRADA
-      // pero se deben MOSTRAR en el día de SALIDA (día siguiente)
-      const result: EmpleadoConJornadas[] = empleadosJornal.map((emp: Empleado) => {
-        const jornadasEmp = jornadasMap.get(emp.id) || new Map()
-        const estadosEmp = estadosMap.get(emp.id) || []
+      // Combinar empleados con sus planificaciones
+      const result: EmpleadoConPlanificacion[] = empleadosJornal.map((emp: Empleado) => {
+        const planningEmp = planningMap.get(emp.id) || new Map()
         
-        const jornadas: Record<string, JornadaDiaria> = {}
+        const planificacion: Record<string, DailyPlanning> = {}
         
         for (const fecha of fechasVista) {
-          // Buscar jornada normal para esta fecha
-          let jornada = jornadasEmp.get(fecha)
-          
-          // Para turnos nocturnos, buscar la jornada del día ANTERIOR
-          // porque la fecha almacenada es el día de entrada, pero se muestra en el día de salida
-          const fechaAnterior = new Date(fecha + 'T12:00:00')
-          fechaAnterior.setDate(fechaAnterior.getDate() - 1)
-          const fechaAnteriorStr = fechaAnterior.toISOString().split('T')[0]
-          
-          const jornadaNocheAnterior = jornadasEmp.get(fechaAnteriorStr)
-          if (jornadaNocheAnterior && esHorarioNocturno(jornadaNocheAnterior.hora_entrada_asignada, jornadaNocheAnterior.hora_salida_asignada)) {
-            // Esta es una jornada nocturna del día anterior que SALE hoy
-            // La mostramos en este día con indicador de entrada del día anterior
-            jornada = {
-              ...jornadaNocheAnterior,
-              fecha: fecha, // Cambiar fecha para mostrar correctamente
-              _entradaDiaAnterior: true // Flag interno
-            } as JornadaDiaria & { _entradaDiaAnterior?: boolean }
-          }
-          
-          // Si la jornada actual es nocturna (entrada > salida), NO la mostramos hoy
-          // porque se mostrará mañana (en el día de salida)
-          if (jornada && !('_entradaDiaAnterior' in jornada) && esHorarioNocturno(jornada.hora_entrada_asignada, jornada.hora_salida_asignada)) {
-            jornada = undefined // No mostrar hoy, se mostrará mañana
-          }
-          
-          if (!jornada) {
-            // Verificar si tiene estado para esa fecha
-            const estado = estadosEmp.find(e => fecha >= e.desde && fecha <= e.hasta)
-            if (estado) {
-              jornada = {
-                empleado_id: emp.id,
-                fecha,
-                turno_asignado: null,
-                estado_empleado: estado.tipo,
-                horas_asignadas: 0,
-                horas_extra_50: 0,
-                horas_extra_100: 0
-              }
-            }
-          }
-          
-          if (jornada) {
-            jornadas[fecha] = jornada
+          const plan = planningEmp.get(fecha)
+          if (plan) {
+            planificacion[fecha] = plan
           }
         }
         
-        return { empleado: emp, jornadas }
+        return { empleado: emp, planificacion }
       })
       
       // Ordenar por apellido
       result.sort((a, b) => a.empleado.apellido.localeCompare(b.empleado.apellido))
       
       setEmpleados(result)
+      empleadosRef.current = result
     } catch (err) {
       console.error('Error cargando datos:', err)
     } finally {
       setLoading(false)
     }
   }, [inicioVista, tipoVista])
+  
+  // Función para detectar cambios y animar celdas (usada por el chat)
+  const cargarDatosConAnimacion = useCallback(async () => {
+    // Crear snapshot del estado actual antes de recargar
+    const snapshotAnterior = new Map<string, string>()
+    for (const emp of empleadosRef.current) {
+      for (const [fecha, plan] of Object.entries(emp.planificacion)) {
+        const key = `${emp.empleado.id}_${fecha}`
+        // Hash simple del contenido de la planificación
+        const hash = JSON.stringify({
+          status: plan.status,
+          absence_reason: plan.absence_reason,
+          normal_entry_at: plan.normal_entry_at,
+          normal_exit_at: plan.normal_exit_at
+        })
+        snapshotAnterior.set(key, hash)
+      }
+    }
+    
+    // Recargar datos
+    await cargarDatos()
+    
+    // Comparar y detectar cambios
+    const nuevasAnimaciones = new Set<string>()
+    
+    // Esperar un tick para que el estado se actualice
+    setTimeout(() => {
+      for (const emp of empleadosRef.current) {
+        for (const [fecha, plan] of Object.entries(emp.planificacion)) {
+          const key = `${emp.empleado.id}_${fecha}`
+          const hashNuevo = JSON.stringify({
+            status: plan.status,
+            absence_reason: plan.absence_reason,
+            normal_entry_at: plan.normal_entry_at,
+            normal_exit_at: plan.normal_exit_at
+          })
+          const hashAnterior = snapshotAnterior.get(key)
+          
+          // Si es nuevo o cambió, animar
+          if (!hashAnterior || hashAnterior !== hashNuevo) {
+            nuevasAnimaciones.add(key)
+          }
+        }
+      }
+      
+      if (nuevasAnimaciones.size > 0) {
+        setCeldasAnimadas(nuevasAnimaciones)
+        
+        // Limpiar animaciones después de 2.5 segundos
+        setTimeout(() => {
+          setCeldasAnimadas(new Set())
+        }, 2500)
+      }
+    }, 100)
+  }, [cargarDatos])
   
   useEffect(() => {
     cargarDatos()
@@ -477,31 +517,147 @@ export default function PlanificacionPage() {
     return fecha === new Date().toISOString().split('T')[0]
   }
   
-  // Click en celda
-  const handleCeldaClick = (empleado: Empleado, fecha: string, jornada: JornadaDiaria | null, event: React.MouseEvent<HTMLTableCellElement>) => {
+  // Calcular celdas seleccionadas durante drag
+  const getSelectedCells = useCallback(() => {
+    if (!dragStart || !dragEnd) return new Set<string>()
+    
+    const minEmp = Math.min(dragStart.empleadoIdx, dragEnd.empleadoIdx)
+    const maxEmp = Math.max(dragStart.empleadoIdx, dragEnd.empleadoIdx)
+    const minFecha = Math.min(dragStart.fechaIdx, dragEnd.fechaIdx)
+    const maxFecha = Math.max(dragStart.fechaIdx, dragEnd.fechaIdx)
+    
+    const selected = new Set<string>()
+    for (let e = minEmp; e <= maxEmp; e++) {
+      for (let f = minFecha; f <= maxFecha; f++) {
+        if (empleados[e] && fechas[f]) {
+          selected.add(`${empleados[e].empleado.id}_${fechas[f]}`)
+        }
+      }
+    }
+    return selected
+  }, [dragStart, dragEnd, empleados, fechas])
+  
+  // Finalizar selección y crear ChatSelection
+  const finalizarSeleccion = useCallback(() => {
+    if (!dragStart || !dragEnd) return
+    
+    const minEmp = Math.min(dragStart.empleadoIdx, dragEnd.empleadoIdx)
+    const maxEmp = Math.max(dragStart.empleadoIdx, dragEnd.empleadoIdx)
+    const minFecha = Math.min(dragStart.fechaIdx, dragEnd.fechaIdx)
+    const maxFecha = Math.max(dragStart.fechaIdx, dragEnd.fechaIdx)
+    
+    const empleadosSeleccionados: ChatSelection['empleados'] = []
+    for (let e = minEmp; e <= maxEmp; e++) {
+      if (empleados[e]) {
+        empleadosSeleccionados.push({
+          id: empleados[e].empleado.id,
+          legajo: empleados[e].empleado.legajo,
+          nombre: `${empleados[e].empleado.apellido}, ${empleados[e].empleado.nombre}`
+        })
+      }
+    }
+    
+    const fechasSeleccionadas: string[] = []
+    for (let f = minFecha; f <= maxFecha; f++) {
+      if (fechas[f]) {
+        fechasSeleccionadas.push(fechas[f])
+      }
+    }
+    
+    if (empleadosSeleccionados.length > 0 && fechasSeleccionadas.length > 0) {
+      setChatSelection({
+        empleados: empleadosSeleccionados,
+        fechas: fechasSeleccionadas
+      })
+    }
+    
+    setIsDragging(false)
+    setDragStart(null)
+    setDragEnd(null)
+  }, [dragStart, dragEnd, empleados, fechas])
+  
+  // Handlers de mouse para drag selection
+  const handleCellMouseDown = (empleadoIdx: number, fechaIdx: number, event: React.MouseEvent) => {
+    // Solo con click izquierdo y sin modificadores para popover
+    if (event.button !== 0) return
+    
+    // Si tiene shift, iniciamos drag selection
+    if (event.shiftKey) {
+      event.preventDefault()
+      setIsDragging(true)
+      setDragStart({ empleadoIdx, fechaIdx })
+      setDragEnd({ empleadoIdx, fechaIdx })
+      setCeldaSeleccionada(null) // Cerrar popover si está abierto
+    }
+  }
+  
+  const handleCellMouseEnter = (empleadoIdx: number, fechaIdx: number) => {
+    if (isDragging) {
+      setDragEnd({ empleadoIdx, fechaIdx })
+    }
+  }
+  
+  const handleCellMouseUp = () => {
+    if (isDragging) {
+      finalizarSeleccion()
+    }
+  }
+  
+  // Limpiar selección del chat
+  const clearChatSelection = useCallback(() => {
+    setChatSelection(null)
+  }, [])
+  
+  // Efecto para limpiar drag si se suelta el mouse fuera
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isDragging) {
+        finalizarSeleccion()
+      }
+    }
+    
+    window.addEventListener('mouseup', handleGlobalMouseUp)
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
+  }, [isDragging, finalizarSeleccion])
+  
+  // Click en celda (sin shift = popover, con shift = inicio de selección)
+  const handleCeldaClick = (empleado: Empleado, fecha: string, planning: DailyPlanning | null, event: React.MouseEvent<HTMLTableCellElement>) => {
+    // Si es shift+click, no abrir popover (se maneja en mouseDown)
+    if (event.shiftKey) return
     const rect = event.currentTarget.getBoundingClientRect()
     
     setCeldaSeleccionada({
       empleado,
       fecha,
-      jornada,
+      planning,
       rect: { top: rect.bottom + window.scrollY, left: rect.left + window.scrollX, width: rect.width }
     })
     
-    // Inicializar form
-    setFormTurno(jornada?.turno_asignado || '')
-    setFormEstado(jornada?.estado_empleado || '')
-    setFormHoraEntrada(jornada?.hora_entrada_asignada || HORARIOS_TURNO[jornada?.turno_asignado || 'M']?.entrada || '06:00')
-    setFormHoraSalida(jornada?.hora_salida_asignada || HORARIOS_TURNO[jornada?.turno_asignado || 'M']?.salida || '14:00')
+    // Inicializar form con valores actuales o defaults
+    if (planning) {
+      setFormStatus(planning.status)
+      setFormAbsenceReason(planning.absence_reason || '')
+      // Extraer hora de datetime
+      setFormHoraEntrada(planning.normal_entry_at ? extractTime(planning.normal_entry_at) : '06:00')
+      setFormHoraSalida(planning.normal_exit_at ? extractTime(planning.normal_exit_at) : '14:00')
+    } else {
+      setFormStatus('WORKING')
+      setFormAbsenceReason('')
+      setFormHoraEntrada('06:00')
+      setFormHoraSalida('14:00')
+    }
   }
   
-  // Cambiar turno actualiza horarios
-  const handleTurnoChange = (turno: string) => {
-    setFormTurno(turno)
-    if (turno && HORARIOS_TURNO[turno]) {
-      setFormHoraEntrada(HORARIOS_TURNO[turno].entrada)
-      setFormHoraSalida(HORARIOS_TURNO[turno].salida)
-    }
+  // Extraer hora de un datetime ISO
+  // Extraer hora HH:MM de datetime (ya viene en hora Argentina)
+  const extractTime = (datetime: string): string => {
+    return extractTimeFromDatetime(datetime) || '06:00'
+  }
+  
+  // Aplicar turno rápido (preset de horarios)
+  const handleTurnoRapido = (entrada: string, salida: string) => {
+    setFormHoraEntrada(entrada)
+    setFormHoraSalida(salida)
   }
   
   // Guardar cambios
@@ -510,26 +666,42 @@ export default function PlanificacionPage() {
     
     setGuardando(true)
     try {
-      // Calcular horas totales y extras automáticamente
-      let horasTotales = 8
-      let horasExtra = 0
-      if (!formEstado && formHoraEntrada && formHoraSalida) {
-        horasTotales = calcularHoras(formHoraEntrada, formHoraSalida)
-        horasExtra = Math.max(0, horasTotales - 8)
+      const fecha = celdaSeleccionada.fecha
+      
+      // Construir datetimes completos
+      let normalEntryAt: string | null = null
+      let normalExitAt: string | null = null
+      
+      if (formStatus === 'WORKING') {
+        // Detectar si es turno nocturno (entrada > salida = cruza medianoche)
+        const esNocturno = formHoraEntrada > formHoraSalida
+        
+        if (esNocturno) {
+          // Entrada es del día anterior
+          const fechaAnterior = new Date(fecha + 'T12:00:00')
+          fechaAnterior.setDate(fechaAnterior.getDate() - 1)
+          const fechaAnteriorStr = fechaAnterior.toISOString().split('T')[0]
+          normalEntryAt = `${fechaAnteriorStr} ${formHoraEntrada}`
+          normalExitAt = `${fecha} ${formHoraSalida}`
+        } else {
+          normalEntryAt = `${fecha} ${formHoraEntrada}`
+          normalExitAt = `${fecha} ${formHoraSalida}`
+        }
       }
       
       const payload = {
-        empleado_id: celdaSeleccionada.empleado.id,
-        fecha: celdaSeleccionada.fecha,
-        turno_asignado: formEstado ? null : (formTurno || null),
-        estado_empleado: formEstado || null,
-        hora_entrada_asignada: formEstado ? null : formHoraEntrada,
-        hora_salida_asignada: formEstado ? null : formHoraSalida,
-        horas_extra_planificadas: horasExtra, // Calculado automáticamente del horario
-        horas_asignadas: formEstado ? 0 : horasTotales,
+        plannings: [{
+          employee_id: celdaSeleccionada.empleado.id,
+          operational_date: fecha,
+          status: formStatus,
+          absence_reason: formStatus === 'ABSENT' ? formAbsenceReason : null,
+          normal_entry_at: normalEntryAt,
+          normal_exit_at: normalExitAt,
+          origin: 'web'
+        }]
       }
       
-      const res = await fetch('/api/sicamar/jornadas', {
+      const res = await fetch('/api/sicamar/planning', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -540,7 +712,7 @@ export default function PlanificacionPage() {
         await cargarDatos()
         setCeldaSeleccionada(null)
       } else {
-        console.error('Error guardando jornada')
+        console.error('Error guardando planificación')
       }
     } catch (err) {
       console.error('Error:', err)
@@ -549,16 +721,16 @@ export default function PlanificacionPage() {
     }
   }
   
-  // Eliminar jornada
-  const eliminarJornada = async () => {
-    if (!celdaSeleccionada?.jornada?.id) {
+  // Eliminar planificación
+  const eliminarPlanificacion = async () => {
+    if (!celdaSeleccionada?.planning?.id) {
       setCeldaSeleccionada(null)
       return
     }
     
     setGuardando(true)
     try {
-      const res = await fetch(`/api/sicamar/jornadas?fecha=${celdaSeleccionada.fecha}&empleado_ids=${celdaSeleccionada.empleado.id}`, {
+      const res = await fetch(`/api/sicamar/planning?fecha=${celdaSeleccionada.fecha}&employee_id=${celdaSeleccionada.empleado.id}`, {
         method: 'DELETE'
       })
       
@@ -771,7 +943,7 @@ export default function PlanificacionPage() {
                       ))}
                     </tr>
                   ))
-                ) : empleados.map(({ empleado, jornadas }) => (
+                ) : empleados.map(({ empleado, planificacion }, empleadoIdx) => (
                   <tr key={empleado.id} className="border-t border-neutral-50 hover:bg-neutral-50/50 transition-colors">
                     <td className="py-2 pr-6">
                       <div className="flex items-center gap-3">
@@ -788,38 +960,46 @@ export default function PlanificacionPage() {
                         </div>
                       </div>
                     </td>
-                    {fechas.map((fecha) => {
-                      const j = jornadas[fecha]
-                      // Calcular si tiene horas extra basado en el horario planificado
-                      const tieneExtra = j && j.hora_entrada_asignada && j.hora_salida_asignada && 
-                        calcularHoras(j.hora_entrada_asignada, j.hora_salida_asignada) > 8
-                      const isSelected = celdaSeleccionada?.empleado.id === empleado.id && celdaSeleccionada?.fecha === fecha
+                    {fechas.map((fecha, fechaIdx) => {
+                      const p = planificacion[fecha]
+                      const isPopoverSelected = celdaSeleccionada?.empleado.id === empleado.id && celdaSeleccionada?.fecha === fecha
+                      const isAnimated = celdasAnimadas.has(`${empleado.id}_${fecha}`)
+                      const isDragSelected = getSelectedCells().has(`${empleado.id}_${fecha}`)
+                      const isChatSelected = chatSelection?.empleados.some(e => e.id === empleado.id) && chatSelection?.fechas.includes(fecha)
                       
-                      // Determinar qué mostrar
-                      const tieneEstado = j?.estado_empleado
-                      const tieneTurno = j?.turno_asignado || j?.hora_entrada_asignada
-                      const estadoStyle = tieneEstado ? getEstadoStyle(j.estado_empleado!) : null
+                      // Extraer horas de los datetimes
+                      const horaEntrada = p?.normal_entry_at ? extractTimeFromDatetime(p.normal_entry_at) : null
+                      const horaSalida = p?.normal_exit_at ? extractTimeFromDatetime(p.normal_exit_at) : null
                       
-                      // Obtener horarios (del turno o personalizados)
-                      const horaEntrada = j?.hora_entrada_asignada || (j?.turno_asignado ? HORARIOS_TURNO[j.turno_asignado]?.entrada : null)
-                      const horaSalida = j?.hora_salida_asignada || (j?.turno_asignado ? HORARIOS_TURNO[j.turno_asignado]?.salida : null)
+                      // Calcular si tiene horas extra
+                      const tieneExtra = horaEntrada && horaSalida && calcularHoras(horaEntrada, horaSalida) > 8
                       
                       return (
                         <td 
                           key={fecha}
-                          onClick={(e) => handleCeldaClick(empleado, fecha, j || null, e)}
+                          onClick={(e) => handleCeldaClick(empleado, fecha, p || null, e)}
+                          onMouseDown={(e) => handleCellMouseDown(empleadoIdx, fechaIdx, e)}
+                          onMouseEnter={() => handleCellMouseEnter(empleadoIdx, fechaIdx)}
+                          onMouseUp={handleCellMouseUp}
                           className={`
-                            text-center py-2 px-1 cursor-pointer transition-all
+                            text-center py-2 px-1 cursor-pointer transition-all select-none
                             ${esHoy(fecha) ? 'bg-[#C4322F]/[0.03]' : ''} 
-                            ${isSelected ? 'ring-2 ring-[#C4322F] ring-inset' : 'hover:bg-neutral-100/50'}
+                            ${isPopoverSelected ? 'ring-2 ring-[#C4322F] ring-inset' : ''}
+                            ${isDragSelected ? 'bg-[#C4322F]/10 ring-1 ring-[#C4322F]/30 ring-inset' : ''}
+                            ${isChatSelected && !isDragSelected ? 'bg-[#C4322F]/5' : ''}
+                            ${!isPopoverSelected && !isDragSelected ? 'hover:bg-neutral-100/50' : ''}
+                            ${isAnimated ? 'celda-animada' : ''}
                           `}
                         >
-                          {tieneEstado ? (
-                            // Mostrar estado (vac, enf, etc.)
-                            <span className={`text-[11px] ${estadoStyle?.text}`}>
-                              {estadoStyle?.label}
+                          {p?.status === 'REST' ? (
+                            // Franco
+                            <span className="text-[11px] text-neutral-300">F</span>
+                          ) : p?.status === 'ABSENT' && p.absence_reason ? (
+                            // Mostrar razón de ausencia
+                            <span className="text-[11px] text-neutral-400">
+                              {ABSENCE_LABELS[p.absence_reason] || '?'}
                             </span>
-                          ) : tieneTurno ? (
+                          ) : p?.status === 'WORKING' && horaEntrada && horaSalida ? (
                             // Mostrar horario desde-hasta
                             <div className="relative inline-flex items-center justify-center">
                               {esHorarioNocturno(horaEntrada, horaSalida) ? (
@@ -911,24 +1091,43 @@ export default function PlanificacionPage() {
             </button>
           </div>
           
-          {/* Estado (prioridad sobre turno) */}
+          {/* Status selector */}
           <div className="mb-4">
             <label className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1.5 block">
               Estado
             </label>
             <select
-              value={formEstado}
-              onChange={(e) => setFormEstado(e.target.value)}
+              value={formStatus}
+              onChange={(e) => setFormStatus(e.target.value as PlanningStatus)}
               className="w-full h-8 text-sm border border-neutral-200 rounded px-2 focus:outline-none focus:border-neutral-400"
             >
-              {ESTADOS_EMPLEADO.map(e => (
-                <option key={e.value} value={e.value}>{e.label}</option>
+              {STATUS_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
           </div>
           
-          {/* Horario (solo si trabaja) */}
-          {!formEstado && (
+          {/* Razón de ausencia (solo si status = ABSENT) */}
+          {formStatus === 'ABSENT' && (
+            <div className="mb-4">
+              <label className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1.5 block">
+                Razón
+              </label>
+              <select
+                value={formAbsenceReason}
+                onChange={(e) => setFormAbsenceReason(e.target.value)}
+                className="w-full h-8 text-sm border border-neutral-200 rounded px-2 focus:outline-none focus:border-neutral-400"
+              >
+                <option value="">Seleccionar...</option>
+                {ABSENCE_REASONS.map(r => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          
+          {/* Horario (solo si status = WORKING) */}
+          {formStatus === 'WORKING' && (
             <>
               {/* Atajos de turno */}
               <div className="mb-3">
@@ -943,11 +1142,7 @@ export default function PlanificacionPage() {
                   ].map(t => (
                     <button
                       key={t.label}
-                      onClick={() => {
-                        setFormHoraEntrada(t.entrada)
-                        setFormHoraSalida(t.salida)
-                        setFormTurno(t.label[0])
-                      }}
+                      onClick={() => handleTurnoRapido(t.entrada, t.salida)}
                       className={`
                         flex-1 h-7 text-[10px] rounded transition-colors
                         ${formHoraEntrada === t.entrada && formHoraSalida === t.salida
@@ -1012,9 +1207,9 @@ export default function PlanificacionPage() {
           
           {/* Acciones */}
           <div className="flex items-center gap-2 pt-2 border-t border-neutral-100">
-            {celdaSeleccionada.jornada?.id && (
+            {celdaSeleccionada.planning?.id && (
               <button
-                onClick={eliminarJornada}
+                onClick={eliminarPlanificacion}
                 disabled={guardando}
                 className="h-8 px-3 text-xs text-neutral-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
               >
@@ -1031,7 +1226,7 @@ export default function PlanificacionPage() {
             </button>
             <button
               onClick={guardarCambios}
-              disabled={guardando || (!formTurno && !formEstado)}
+              disabled={guardando || (formStatus === 'ABSENT' && !formAbsenceReason)}
               className="h-8 px-4 text-xs bg-neutral-900 text-white rounded hover:bg-neutral-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {guardando ? '...' : 'Guardar'}
@@ -1046,7 +1241,9 @@ export default function PlanificacionPage() {
       {/* Chat de planificación - siempre visible a la derecha */}
       <PlanningChat 
         fechasSemana={fechas} 
-        onJornadaUpdated={cargarDatos}
+        onJornadaUpdated={cargarDatosConAnimacion}
+        selection={chatSelection}
+        onClearSelection={clearChatSelection}
       />
     </div>
   )

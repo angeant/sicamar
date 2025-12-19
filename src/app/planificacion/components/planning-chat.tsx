@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useUser } from '@clerk/nextjs'
 
 interface ToolCall {
   name: string
@@ -16,24 +17,37 @@ interface Message {
   toolCalls?: ToolCall[]
 }
 
+interface ChatSelection {
+  empleados: { id: number; legajo: string; nombre: string }[]
+  fechas: string[]
+}
+
 interface PlanningChatProps {
   fechasSemana?: string[]
   onJornadaUpdated?: () => void
+  selection?: ChatSelection | null
+  onClearSelection?: () => void
 }
 
-// Helper para obtener/crear session ID persistente
-function getSessionId(): string {
-  if (typeof window === 'undefined') return ''
-  
-  const key = 'sicamar_chat_session_id'
-  let sessionId = localStorage.getItem(key)
-  
-  if (!sessionId) {
-    sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-    localStorage.setItem(key, sessionId)
-  }
-  
-  return sessionId
+// Helper para obtener el conversation_id guardado del usuario
+function getSavedConversationId(email: string): string | null {
+  if (typeof window === 'undefined') return null
+  const key = `sicamar_chat_conversation_${email}`
+  return localStorage.getItem(key)
+}
+
+// Guardar conversation_id del usuario
+function saveConversationId(email: string, conversationId: string): void {
+  if (typeof window === 'undefined') return
+  const key = `sicamar_chat_conversation_${email}`
+  localStorage.setItem(key, conversationId)
+}
+
+// Limpiar conversation_id (para nueva conversación)
+function clearConversationId(email: string): void {
+  if (typeof window === 'undefined') return
+  const key = `sicamar_chat_conversation_${email}`
+  localStorage.removeItem(key)
 }
 
 // Componente para mostrar una tool call expandible
@@ -136,21 +150,87 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
   )
 }
 
-export default function PlanningChat({ fechasSemana, onJornadaUpdated }: PlanningChatProps) {
+export default function PlanningChat({ fechasSemana, onJornadaUpdated, selection, onClearSelection }: PlanningChatProps) {
+  const { user } = useUser()
+  const userEmail = user?.primaryEmailAddress?.emailAddress || ''
+  
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [currentThinking, setCurrentThinking] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const sessionIdRef = useRef<string>('')
   
-  // Inicializar session ID
+  // Cargar conversación existente del usuario al montar
   useEffect(() => {
-    sessionIdRef.current = getSessionId()
-  }, [])
+    if (!userEmail) return
+    
+    // Intentar cargar del localStorage primero, sino buscar en el servidor
+    const savedConvId = getSavedConversationId(userEmail)
+    if (savedConvId) {
+      setConversationId(savedConvId)
+      loadConversationHistory(savedConvId)
+    } else {
+      // Buscar última conversación del usuario en el servidor
+      loadConversationHistory()
+    }
+  }, [userEmail])
+  
+  // Cargar historial de mensajes de una conversación
+  const loadConversationHistory = async (convId?: string) => {
+    setIsLoadingHistory(true)
+    try {
+      const url = convId 
+        ? `/api/sicamar/chat/history?conversation_id=${convId}`
+        : '/api/sicamar/chat/history'
+      
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success && data.messages?.length > 0) {
+          const loadedMessages: Message[] = data.messages.map((m: { id: string; role: string; content: string; tool_calls?: ToolCall[] }) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            toolCalls: m.tool_calls || []
+          }))
+          setMessages(loadedMessages)
+          
+          // Actualizar conversation_id si se devolvió uno
+          if (data.conversation_id) {
+            setConversationId(data.conversation_id)
+            if (userEmail) {
+              saveConversationId(userEmail, data.conversation_id)
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error loading conversation history:', err)
+    } finally {
+      setIsLoadingHistory(false)
+    }
+  }
+  
+  // Función para iniciar nueva conversación
+  const startNewConversation = useCallback(() => {
+    if (!userEmail) return
+    
+    // Reset state
+    setMessages([])
+    setConversationId(null)
+    setErrorMessage(null)
+    setInput('')
+    
+    // Limpiar conversation_id guardado
+    clearConversationId(userEmail)
+    
+    // Focus input
+    inputRef.current?.focus()
+  }, [userEmail])
   
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -184,9 +264,16 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
             role: m.role,
             content: m.content
           })),
-          context: { fechasSemana },
+          context: { 
+            fechasSemana,
+            seleccion: selection ? {
+              legajos: selection.empleados.map(e => e.legajo),
+              nombres: selection.empleados.map(e => e.nombre),
+              fechas: selection.fechas
+            } : null
+          },
           conversation_id: conversationId,
-          session_id: sessionIdRef.current,
+          user_email: userEmail,
         })
       })
       
@@ -271,13 +358,22 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
                     m.id === assistantMessage.id ? assistantMessage : m
                   ))
                   
-                  if (parsed.name === 'sicamar_jornadas_editar' && parsed.result?.success) {
+                  // Refrescar tabla cuando una herramienta modifica planificación
+                  const herramientasQueModifican = [
+                    'sicamar_planning_editar',
+                    'sicamar_planning_bulk', 
+                    'sicamar_planning_limpiar'
+                  ]
+                  if (herramientasQueModifican.includes(parsed.name) && parsed.result?.success) {
                     onJornadaUpdated?.()
                   }
                 }
               } else if (parsed.type === 'conversation_id') {
                 // Guardar el ID de conversación para mantener persistencia
                 setConversationId(parsed.id)
+                if (userEmail) {
+                  saveConversationId(userEmail, parsed.id)
+                }
               } else if (parsed.type === 'error') {
                 setErrorMessage(parsed.message)
               }
@@ -300,6 +396,8 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
     } finally {
       setIsLoading(false)
       setCurrentThinking(null)
+      // Limpiar selección después de enviar mensaje
+      onClearSelection?.()
     }
   }
   
@@ -314,12 +412,28 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
     <div className="w-72 flex-shrink-0 bg-zinc-950 border-l border-zinc-800/50 flex flex-col h-screen">
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-800/50">
-        <p className="text-[10px] font-medium text-zinc-600 tracking-widest uppercase">
-          Asistente
-        </p>
-        <p className="text-xs text-zinc-400 mt-0.5">
-          Planificación
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-medium text-zinc-600 tracking-widest uppercase">
+              Asistente
+            </p>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Planificación
+            </p>
+          </div>
+          {messages.length > 0 && (
+            <button
+              onClick={startNewConversation}
+              disabled={isLoading}
+              title="Nueva conversación"
+              className="p-1.5 rounded hover:bg-zinc-800 transition-colors disabled:opacity-30"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-500 hover:text-zinc-300">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       
       {/* Messages */}
@@ -406,6 +520,33 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
       
       {/* Input */}
       <div className="flex-shrink-0 px-3 py-3 border-t border-zinc-800/50">
+        {/* Chip de selección */}
+        {selection && selection.empleados.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            <div className="flex items-center gap-1 bg-[#C4322F]/20 border border-[#C4322F]/30 rounded px-2 py-1 text-[10px] text-[#C4322F] max-w-full">
+              <span className="truncate">
+                {selection.empleados.length === 1 
+                  ? `${selection.empleados[0].legajo} · ${selection.empleados[0].nombre.split(',')[0]}`
+                  : `${selection.empleados.length} empleados`
+                }
+                {' · '}
+                {selection.fechas.length === 1
+                  ? new Date(selection.fechas[0] + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' })
+                  : `${selection.fechas.length} días`
+                }
+              </span>
+              <button
+                onClick={onClearSelection}
+                className="ml-1 hover:bg-[#C4322F]/30 rounded p-0.5 transition-colors"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+        
         <div className="flex items-center gap-1.5">
           <input
             ref={inputRef}
@@ -413,7 +554,7 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated }: Plannin
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Escribí algo..."
+            placeholder={selection ? "Ej: turno tarde, vacaciones..." : "Escribí algo..."}
             disabled={isLoading}
             className="flex-1 h-7 bg-zinc-900 border border-zinc-800 rounded px-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-50"
           />
