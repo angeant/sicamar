@@ -64,8 +64,14 @@ export async function GET() {
     }>()
 
     for (const asig of asignaciones || []) {
+      // rotaciones puede venir como objeto o array dependiendo de cómo Supabase resuelve el join
+      const rotacionData = asig.rotaciones
+      const rotacion = Array.isArray(rotacionData) 
+        ? rotacionData[0] as { id: number; nombre: string; turnos: unknown[]; frecuencia_semanas: number } | undefined
+        : rotacionData as { id: number; nombre: string; turnos: unknown[]; frecuencia_semanas: number } | null
+      
       asignacionesMap.set(asig.empleado_id, {
-        rotacion: asig.rotaciones as { id: number; nombre: string; turnos: unknown[]; frecuencia_semanas: number } | null,
+        rotacion: rotacion || null,
         fecha_desde: asig.fecha_desde
       })
     }
