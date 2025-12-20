@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth, useUser, SignInButton } from '@clerk/nextjs'
 import Link from 'next/link'
 import RotationsChat from './components/rotations-chat'
@@ -64,17 +64,88 @@ function AvatarMini({ foto_thumb_url, nombre_completo }: { foto_thumb_url: strin
 function CantidadTurnosBadge({ cantidad }: { cantidad: number }) {
   if (!cantidad) return <span className="text-neutral-200 text-xs">—</span>
   
-  const config: Record<number, { label: string; clase: string }> = {
-    1: { label: 'Fijo', clase: 'bg-neutral-100 text-neutral-500' },
-    2: { label: '2T', clase: 'bg-blue-50 text-blue-700' },
-    3: { label: '3T', clase: 'bg-emerald-50 text-emerald-700' },
-  }
-  
-  const c = config[cantidad] || { label: `${cantidad}T`, clase: 'bg-purple-50 text-purple-700' }
   return (
-    <span className={`text-xs px-2 py-0.5 rounded font-medium ${c.clase}`}>
-      {c.label}
+    <span className="text-[10px] text-neutral-400 font-medium">
+      {cantidad === 1 ? 'Fijo' : `${cantidad}T`}
     </span>
+  )
+}
+
+// ============ DROPDOWN SUTIL PARA ROTACIONES ============
+
+function RotacionDropdown({ 
+  value, 
+  rotaciones, 
+  onChange, 
+  disabled 
+}: { 
+  value: number | null
+  rotaciones: Rotacion[]
+  onChange: (rotacionId: number | null) => void
+  disabled?: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  
+  const selectedRotacion = rotaciones.find(r => r.id === value)
+  const displayText = selectedRotacion?.nombre || 'Sin rotación'
+  
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        type="button"
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`
+          flex items-center gap-1.5 text-xs transition-colors
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:text-neutral-900 cursor-pointer'}
+          ${selectedRotacion ? 'text-neutral-600' : 'text-neutral-300'}
+        `}
+      >
+        <span className="truncate max-w-[140px]">{displayText}</span>
+        <svg 
+          width="10" 
+          height="10" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
+          className={`flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+      
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 bg-white border border-neutral-100 rounded shadow-lg z-20 min-w-[180px] py-1 max-h-[200px] overflow-y-auto">
+          <button
+            onClick={() => { onChange(null); setIsOpen(false) }}
+            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-neutral-50 transition-colors ${!value ? 'text-neutral-900' : 'text-neutral-400'}`}
+          >
+            Sin rotación
+          </button>
+          {rotaciones.map(rot => (
+            <button
+              key={rot.id}
+              onClick={() => { onChange(rot.id); setIsOpen(false) }}
+              className={`w-full text-left px-3 py-1.5 text-xs hover:bg-neutral-50 transition-colors ${value === rot.id ? 'text-neutral-900' : 'text-neutral-600'}`}
+            >
+              {rot.nombre}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -398,8 +469,8 @@ function EmpleadosLista({
   loading,
   searchQuery,
   setSearchQuery,
-  filtroTurnos,
-  setFiltroTurnos,
+  filtroRotacion,
+  setFiltroRotacion,
   onAsignar
 }: {
   empleados: EmpleadoRotacion[]
@@ -407,15 +478,15 @@ function EmpleadosLista({
   loading: boolean
   searchQuery: string
   setSearchQuery: (q: string) => void
-  filtroTurnos: string
-  setFiltroTurnos: (t: string) => void
+  filtroRotacion: string
+  setFiltroRotacion: (t: string) => void
   onAsignar: (empleadoId: number, rotacionId: number | null) => Promise<void>
 }) {
-  const [editando, setEditando] = useState<number | null>(null)
   const [guardando, setGuardando] = useState<number | null>(null)
-  const [pendingChanges, setPendingChanges] = useState<Record<number, number | null>>({})
   const [sortKey, setSortKey] = useState<SortKey>('nombre')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [filtroOpen, setFiltroOpen] = useState(false)
+  const filtroRef = useRef<HTMLDivElement>(null)
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -426,35 +497,22 @@ function EmpleadosLista({
     }
   }
 
-  const handleSave = async (empleadoId: number) => {
-    const newRotacionId = pendingChanges[empleadoId]
-    if (newRotacionId === undefined) {
-      setEditando(null)
-      return
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (filtroRef.current && !filtroRef.current.contains(event.target as Node)) {
+        setFiltroOpen(false)
+      }
     }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
-    setGuardando(empleadoId)
-    try {
-      await onAsignar(empleadoId, newRotacionId)
-      setPendingChanges(prev => {
-        const next = { ...prev }
-        delete next[empleadoId]
-        return next
-      })
-      setEditando(null)
-    } finally {
-      setGuardando(null)
-    }
-  }
-
-  const handleCancel = (empleadoId: number) => {
-    setPendingChanges(prev => {
-      const next = { ...prev }
-      delete next[empleadoId]
-      return next
-    })
-    setEditando(null)
-  }
+  // Obtener la rotación seleccionada para mostrar en el filtro
+  const rotacionFiltroActual = filtroRotacion === 'todas' 
+    ? 'Todas las rotaciones' 
+    : filtroRotacion === 'sin' 
+      ? 'Sin rotación' 
+      : rotaciones.find(r => r.id === Number(filtroRotacion))?.nombre || 'Todas las rotaciones'
 
   // Filtros
   const empleadosFiltrados = empleados.filter(emp => {
@@ -468,12 +526,12 @@ function EmpleadosLista({
       if (!match) return false
     }
     
-    if (filtroTurnos !== 'todas') {
-      if (filtroTurnos === 'sin') {
+    if (filtroRotacion !== 'todas') {
+      if (filtroRotacion === 'sin') {
         if (emp.rotacion_id !== null) return false
       } else {
-        const num = Number(filtroTurnos)
-        if (emp.cantidad_turnos !== num) return false
+        const rotId = Number(filtroRotacion)
+        if (emp.rotacion_id !== rotId) return false
       }
     }
     
@@ -509,7 +567,7 @@ function EmpleadosLista({
           Empleados
         </h2>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <input
             type="text"
             placeholder="Buscar..."
@@ -518,26 +576,52 @@ function EmpleadosLista({
             className="w-40 h-7 px-2 text-xs border border-neutral-200 rounded focus:border-neutral-400 focus:ring-0 focus:outline-none"
           />
           
-          <div className="flex items-center bg-neutral-100 rounded p-0.5">
-            {[
-              { key: 'todas', label: 'Todas' },
-              { key: '1', label: 'Fijo' },
-              { key: '2', label: '2T' },
-              { key: '3', label: '3T' },
-              { key: 'sin', label: 'Sin' },
-            ].map(f => (
-              <button
-                key={f.key}
-                onClick={() => setFiltroTurnos(f.key)}
-                className={`px-2.5 py-1 text-[10px] rounded transition-all ${
-                  filtroTurnos === f.key 
-                    ? 'bg-white text-neutral-900 shadow-sm' 
-                    : 'text-neutral-500 hover:text-neutral-700'
-                }`}
+          {/* Filtro por rotación - dropdown sutil */}
+          <div ref={filtroRef} className="relative">
+            <button
+              onClick={() => setFiltroOpen(!filtroOpen)}
+              className="flex items-center gap-1.5 text-xs text-neutral-500 hover:text-neutral-700 transition-colors"
+            >
+              <span>{rotacionFiltroActual}</span>
+              <svg 
+                width="10" 
+                height="10" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2"
+                className={`transition-transform ${filtroOpen ? 'rotate-180' : ''}`}
               >
-                {f.label}
-              </button>
-            ))}
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            
+            {filtroOpen && (
+              <div className="absolute top-full right-0 mt-1 bg-white border border-neutral-100 rounded shadow-lg z-20 min-w-[180px] py-1 max-h-[240px] overflow-y-auto">
+                <button
+                  onClick={() => { setFiltroRotacion('todas'); setFiltroOpen(false) }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-neutral-50 transition-colors ${filtroRotacion === 'todas' ? 'text-neutral-900 font-medium' : 'text-neutral-500'}`}
+                >
+                  Todas las rotaciones
+                </button>
+                <button
+                  onClick={() => { setFiltroRotacion('sin'); setFiltroOpen(false) }}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-neutral-50 transition-colors ${filtroRotacion === 'sin' ? 'text-neutral-900 font-medium' : 'text-neutral-500'}`}
+                >
+                  Sin rotación
+                </button>
+                <div className="border-t border-neutral-100 my-1" />
+                {rotaciones.map(rot => (
+                  <button
+                    key={rot.id}
+                    onClick={() => { setFiltroRotacion(String(rot.id)); setFiltroOpen(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-neutral-50 transition-colors ${filtroRotacion === String(rot.id) ? 'text-neutral-900 font-medium' : 'text-neutral-600'}`}
+                  >
+                    {rot.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -574,9 +658,7 @@ function EmpleadosLista({
                 </tr>
               ))
             ) : empleadosFiltrados.map(emp => {
-              const isEditing = editando === emp.empleado_id
               const isSaving = guardando === emp.empleado_id
-              const pendingValue = pendingChanges[emp.empleado_id]
               
               return (
                 <tr key={emp.empleado_id} className="border-t border-neutral-50 hover:bg-neutral-50/50 transition-colors">
@@ -594,11 +676,10 @@ function EmpleadosLista({
                   </td>
                   <td className="py-2 px-2">
                     <div className="flex items-center gap-2">
-                      <CantidadTurnosBadge cantidad={emp.cantidad_turnos} />
-                      <select
-                        value={emp.rotacion_id ?? ''}
-                        onChange={async (e) => {
-                          const newVal = e.target.value ? Number(e.target.value) : null
+                      <RotacionDropdown
+                        value={emp.rotacion_id}
+                        rotaciones={rotaciones}
+                        onChange={async (newVal) => {
                           if (newVal !== emp.rotacion_id) {
                             setGuardando(emp.empleado_id)
                             await onAsignar(emp.empleado_id, newVal)
@@ -606,14 +687,8 @@ function EmpleadosLista({
                           }
                         }}
                         disabled={isSaving}
-                        className={`h-6 px-1.5 text-xs border border-neutral-200 rounded max-w-[180px] focus:border-neutral-400 focus:ring-0 focus:outline-none bg-white ${isSaving ? 'opacity-50' : ''}`}
-                      >
-                        <option value="">Sin rotación</option>
-                        {rotaciones.map(rot => (
-                          <option key={rot.id} value={rot.id}>{rot.nombre}</option>
-                        ))}
-                      </select>
-                      {isSaving && <span className="text-[9px] text-neutral-400">...</span>}
+                      />
+                      {isSaving && <span className="text-[9px] text-neutral-400 ml-1">guardando...</span>}
                     </div>
                   </td>
                   <td className="py-2 px-2" />
@@ -642,7 +717,7 @@ function RotacionesContent() {
   const [empleados, setEmpleados] = useState<EmpleadoRotacion[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
-  const [filtroTurnos, setFiltroTurnos] = useState<string>('todas')
+  const [filtroRotacion, setFiltroRotacion] = useState<string>('todas')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRotacion, setEditingRotacion] = useState<Rotacion | null>(null)
   const [saving, setSaving] = useState(false)
@@ -753,8 +828,8 @@ function RotacionesContent() {
             loading={loading}
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
-            filtroTurnos={filtroTurnos}
-            setFiltroTurnos={setFiltroTurnos}
+            filtroRotacion={filtroRotacion}
+            setFiltroRotacion={setFiltroRotacion}
             onAsignar={handleAsignarRotacion}
           />
         </div>
