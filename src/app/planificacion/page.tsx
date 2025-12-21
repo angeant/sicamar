@@ -13,6 +13,26 @@ interface Empleado {
   apellido: string
   sector: string | null
   categoria: string | null
+  foto_thumb_url?: string | null
+}
+
+// Avatar mini para empleados
+function AvatarMini({ foto_thumb_url, nombre, apellido }: { foto_thumb_url?: string | null, nombre: string, apellido: string }) {
+  const iniciales = `${nombre?.[0] || ''}${apellido?.[0] || ''}`.toUpperCase()
+  
+  if (foto_thumb_url) {
+    return (
+      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+        <img src={foto_thumb_url} alt={`${apellido}, ${nombre}`} className="w-full h-full object-cover grayscale" />
+      </div>
+    )
+  }
+  
+  return (
+    <div className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-xs text-neutral-400 flex-shrink-0">
+      {iniciales}
+    </div>
+  )
 }
 
 type PlanningStatus = 'WORKING' | 'ABSENT' | 'REST'
@@ -1133,11 +1153,11 @@ export default function PlanificacionPage() {
                   Array.from({ length: 15 }).map((_, i) => (
                     <tr key={i} className="border-t border-neutral-50">
                       <td className="py-2 pr-6">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-4 bg-neutral-100 rounded animate-pulse" />
-                          <div>
-                            <div className="w-24 h-4 bg-neutral-100 rounded animate-pulse mb-1" />
-                            <div className="w-16 h-3 bg-neutral-50 rounded animate-pulse" />
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 bg-neutral-100 rounded-full animate-pulse" />
+                          <div className="flex flex-col gap-1">
+                            <div className="w-28 h-3.5 bg-neutral-100 rounded animate-pulse" />
+                            <div className="w-12 h-2.5 bg-neutral-50 rounded animate-pulse" />
                           </div>
                         </div>
                       </td>
@@ -1163,28 +1183,26 @@ export default function PlanificacionPage() {
                       onMouseDown={(e) => handleEmpleadoMouseDown(empleadoIdx, e)}
                       onMouseEnter={() => handleEmpleadoMouseEnter(empleadoIdx)}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div className="relative">
-                          <span className={`text-xs font-mono w-8 block ${
-                            isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-300'
-                          }`}>
-                            {empleado.legajo}
-                          </span>
+                          <AvatarMini 
+                            foto_thumb_url={empleado.foto_thumb_url} 
+                            nombre={empleado.nombre} 
+                            apellido={empleado.apellido} 
+                          />
                           {isEmpleadoSelected && (
-                            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#C4322F] rounded-full flex items-center justify-center">
-                              <svg width="5" height="5" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-[#C4322F] rounded-full flex items-center justify-center">
+                              <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
                                 <polyline points="20 6 9 17 4 12" />
                               </svg>
                             </div>
                           )}
                         </div>
-                        <div>
-                          <p className={`text-sm ${isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-700'}`}>
-                            {empleado.apellido}
-                          </p>
-                          <p className="text-[10px] text-neutral-400">
-                            {empleado.nombre}
-                          </p>
+                        <div className="flex flex-col min-w-0">
+                          <span className={`text-sm truncate max-w-[140px] ${isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-700'}`}>
+                            {empleado.apellido}, {empleado.nombre}
+                          </span>
+                          <span className="text-[10px] text-neutral-300 font-mono">{empleado.legajo}</span>
                         </div>
                       </div>
                     </td>
