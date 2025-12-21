@@ -1174,7 +1174,7 @@ export default function PlanificacionPage() {
                   return (
                   <tr key={empleado.id} className="border-t border-neutral-50 hover:bg-neutral-50/50 transition-colors">
                     <td 
-                      className={`py-2 pr-6 cursor-pointer select-none transition-colors ${
+                      className={`py-2 pl-3 pr-6 cursor-pointer select-none transition-colors rounded-l ${
                         isEmpleadoSelected 
                           ? 'bg-[#C4322F]/5' 
                           : 'hover:bg-neutral-100/50'

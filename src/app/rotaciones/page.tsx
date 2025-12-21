@@ -766,16 +766,16 @@ function EmpleadosLista({
               return (
                 <tr 
                   key={emp.empleado_id} 
-                  className={`border-t border-neutral-50 transition-colors cursor-pointer ${
-                    isSelected 
-                      ? 'bg-[#C4322F]/5 hover:bg-[#C4322F]/10' 
-                      : 'hover:bg-neutral-50/50'
-                  }`}
+                  className="border-t border-neutral-50 transition-colors cursor-pointer"
                   onClick={(e) => handleRowClick(emp, index, e)}
                   onMouseDown={(e) => handleRowMouseDown(index, e)}
                   onMouseEnter={() => handleRowMouseEnter(index)}
                 >
-                  <td className="py-2 pr-3">
+                  <td className={`py-2 pl-3 pr-3 rounded-l transition-colors ${
+                    isSelected 
+                      ? 'bg-[#C4322F]/5' 
+                      : 'hover:bg-neutral-50/50'
+                  }`}>
                     <div className="flex items-center gap-2">
                       <div className="relative">
                         <AvatarMini foto_thumb_url={emp.foto_thumb_url} nombre_completo={emp.nombre_completo} />
