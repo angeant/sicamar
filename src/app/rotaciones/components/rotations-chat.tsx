@@ -138,11 +138,25 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
   )
 }
 
-interface RotationsChatProps {
-  onRotationUpdated?: () => void
+interface EmpleadoSeleccionado {
+  empleado_id: number
+  legajo: string
+  nombre_completo: string
 }
 
-export default function RotationsChat({ onRotationUpdated }: RotationsChatProps) {
+interface RotationsChatProps {
+  onRotationUpdated?: () => void
+  selectedEmpleados?: EmpleadoSeleccionado[]
+  onClearSelection?: () => void
+  onRemoveEmpleado?: (empleadoId: number) => void
+}
+
+export default function RotationsChat({ 
+  onRotationUpdated, 
+  selectedEmpleados = [],
+  onClearSelection,
+  onRemoveEmpleado 
+}: RotationsChatProps) {
   const { user } = useUser()
   const userEmail = user?.primaryEmailAddress?.emailAddress || ''
   
@@ -230,17 +244,37 @@ export default function RotationsChat({ onRotationUpdated }: RotationsChatProps)
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
     
+    // Construir el mensaje con contexto de empleados seleccionados
+    let messageContent = input.trim()
+    
+    if (selectedEmpleados.length > 0) {
+      // Agregar contexto de empleados seleccionados de forma compacta
+      const legajos = selectedEmpleados.map(e => e.legajo).join(', ')
+      messageContent = `[Empleados seleccionados: legajos ${legajos}]\n\n${messageContent}`
+    }
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
+      content: messageContent
+    }
+    
+    // Para mostrar al usuario, solo mostramos el input sin el contexto
+    const displayMessage: Message = {
+      ...userMessage,
       content: input.trim()
     }
     
-    setMessages(prev => [...prev, userMessage])
+    setMessages(prev => [...prev, displayMessage])
     setInput('')
     setIsLoading(true)
     setCurrentThinking(null)
     setErrorMessage(null)
+    
+    // Limpiar selección después de enviar (la acción ya fue capturada en el mensaje)
+    if (selectedEmpleados.length > 0) {
+      onClearSelection?.()
+    }
     
     try {
       const response = await fetch('/api/sicamar/chat-rotaciones', {
@@ -497,6 +531,39 @@ export default function RotationsChat({ onRotationUpdated }: RotationsChatProps)
       
       {/* Input */}
       <div className="flex-shrink-0 px-3 py-3 border-t border-zinc-800/50">
+        {/* Badges de empleados seleccionados */}
+        {selectedEmpleados.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {selectedEmpleados.slice(0, 5).map((emp) => (
+              <span 
+                key={emp.empleado_id}
+                className="inline-flex items-center gap-1 bg-[#C4322F]/20 text-[#C4322F] text-[9px] px-1.5 py-0.5 rounded"
+              >
+                <span className="font-mono">{emp.legajo}</span>
+                <button 
+                  onClick={() => onRemoveEmpleado?.(emp.empleado_id)}
+                  className="hover:text-white transition-colors"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {selectedEmpleados.length > 5 && (
+              <span className="text-[9px] text-zinc-500">
+                +{selectedEmpleados.length - 5} más
+              </span>
+            )}
+            {selectedEmpleados.length > 1 && (
+              <button 
+                onClick={onClearSelection}
+                className="text-[9px] text-zinc-500 hover:text-zinc-300 ml-1"
+              >
+                limpiar
+              </button>
+            )}
+          </div>
+        )}
+        
         <div className="flex items-center gap-1.5">
           <input
             ref={inputRef}
@@ -504,7 +571,9 @@ export default function RotationsChat({ onRotationUpdated }: RotationsChatProps)
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Escribí algo..."
+            placeholder={selectedEmpleados.length > 0 
+              ? `Aplicar a ${selectedEmpleados.length} empleado${selectedEmpleados.length > 1 ? 's' : ''}...`
+              : "Escribí algo..."}
             disabled={isLoading}
             className="flex-1 h-7 bg-zinc-900 border border-zinc-800 rounded px-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-50"
           />

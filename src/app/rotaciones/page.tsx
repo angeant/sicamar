@@ -463,6 +463,13 @@ function RotacionesCatalogo({
 type SortKey = 'nombre' | 'legajo' | 'sector' | 'rotacion'
 type SortDir = 'asc' | 'desc'
 
+// Tipo para empleados seleccionados (exportado para el chat)
+export interface EmpleadoSeleccionado {
+  empleado_id: number
+  legajo: string
+  nombre_completo: string
+}
+
 function EmpleadosLista({
   empleados,
   rotaciones,
@@ -471,7 +478,9 @@ function EmpleadosLista({
   setSearchQuery,
   filtroRotacion,
   setFiltroRotacion,
-  onAsignar
+  onAsignar,
+  selectedEmpleados,
+  onSelectionChange
 }: {
   empleados: EmpleadoRotacion[]
   rotaciones: Rotacion[]
@@ -481,12 +490,19 @@ function EmpleadosLista({
   filtroRotacion: string
   setFiltroRotacion: (t: string) => void
   onAsignar: (empleadoId: number, rotacionId: number | null) => Promise<void>
+  selectedEmpleados: EmpleadoSeleccionado[]
+  onSelectionChange: (selected: EmpleadoSeleccionado[]) => void
 }) {
   const [guardando, setGuardando] = useState<number | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>('nombre')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [filtroOpen, setFiltroOpen] = useState(false)
   const filtroRef = useRef<HTMLDivElement>(null)
+  
+  // Para drag selection
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStartIndex, setDragStartIndex] = useState<number | null>(null)
+  const tableRef = useRef<HTMLTableElement>(null)
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -506,6 +522,83 @@ function EmpleadosLista({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Manejar fin de drag fuera de la tabla
+  useEffect(() => {
+    function handleMouseUp() {
+      setIsDragging(false)
+      setDragStartIndex(null)
+    }
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => document.removeEventListener('mouseup', handleMouseUp)
+  }, [])
+
+  // Función para manejar click en una fila
+  const handleRowClick = (emp: EmpleadoRotacion, index: number, event: React.MouseEvent) => {
+    const isSelected = selectedEmpleados.some(s => s.empleado_id === emp.empleado_id)
+    
+    if (event.metaKey || event.ctrlKey) {
+      // Cmd/Ctrl+Click: toggle individual
+      if (isSelected) {
+        onSelectionChange(selectedEmpleados.filter(s => s.empleado_id !== emp.empleado_id))
+      } else {
+        onSelectionChange([...selectedEmpleados, { empleado_id: emp.empleado_id, legajo: emp.legajo, nombre_completo: emp.nombre_completo }])
+      }
+    } else if (event.shiftKey && selectedEmpleados.length > 0) {
+      // Shift+Click: seleccionar rango
+      const lastSelectedId = selectedEmpleados[selectedEmpleados.length - 1].empleado_id
+      const lastIndex = empleadosFiltrados.findIndex(e => e.empleado_id === lastSelectedId)
+      const startIdx = Math.min(lastIndex, index)
+      const endIdx = Math.max(lastIndex, index)
+      
+      const rangeSelection = empleadosFiltrados.slice(startIdx, endIdx + 1).map(e => ({
+        empleado_id: e.empleado_id,
+        legajo: e.legajo,
+        nombre_completo: e.nombre_completo
+      }))
+      
+      // Merge con selección existente (sin duplicados)
+      const existingIds = new Set(selectedEmpleados.map(s => s.empleado_id))
+      const newSelection = [...selectedEmpleados]
+      for (const e of rangeSelection) {
+        if (!existingIds.has(e.empleado_id)) {
+          newSelection.push(e)
+        }
+      }
+      onSelectionChange(newSelection)
+    } else {
+      // Click simple: seleccionar solo este
+      if (isSelected && selectedEmpleados.length === 1) {
+        onSelectionChange([])
+      } else {
+        onSelectionChange([{ empleado_id: emp.empleado_id, legajo: emp.legajo, nombre_completo: emp.nombre_completo }])
+      }
+    }
+  }
+
+  // Manejar inicio de drag
+  const handleRowMouseDown = (index: number, event: React.MouseEvent) => {
+    // Solo iniciar drag con click izquierdo sin modificadores
+    if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      setIsDragging(true)
+      setDragStartIndex(index)
+    }
+  }
+
+  // Manejar mouse enter durante drag
+  const handleRowMouseEnter = (index: number) => {
+    if (isDragging && dragStartIndex !== null) {
+      const startIdx = Math.min(dragStartIndex, index)
+      const endIdx = Math.max(dragStartIndex, index)
+      
+      const rangeSelection = empleadosFiltrados.slice(startIdx, endIdx + 1).map(e => ({
+        empleado_id: e.empleado_id,
+        legajo: e.legajo,
+        nombre_completo: e.nombre_completo
+      }))
+      onSelectionChange(rangeSelection)
+    }
+  }
 
   // Obtener la rotación seleccionada para mostrar en el filtro
   const rotacionFiltroActual = filtroRotacion === 'todas' 
@@ -563,9 +656,14 @@ function EmpleadosLista({
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xs font-medium text-neutral-400 uppercase tracking-widest">
-          Empleados
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-medium text-neutral-400 uppercase tracking-widest">
+            Empleados
+          </h2>
+          <span className="text-[9px] text-neutral-300" title="Click para seleccionar, ⌘+click para agregar, arrastrar para múltiples">
+            ⌘ click · drag
+          </span>
+        </div>
         
         <div className="flex items-center gap-4">
           <input
@@ -628,14 +726,11 @@ function EmpleadosLista({
 
       {/* Tabla */}
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table ref={tableRef} className="w-full select-none">
           <thead>
             <tr>
               <th onClick={() => handleSort('nombre')} className="text-left text-xs font-normal text-neutral-400 pb-3 pr-3 cursor-pointer hover:text-neutral-600 select-none">
                 Empleado{sortKey === 'nombre' && <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>}
-              </th>
-              <th onClick={() => handleSort('legajo')} className="text-left text-xs font-normal text-neutral-400 pb-3 px-2 w-16 cursor-pointer hover:text-neutral-600 select-none">
-                Leg.{sortKey === 'legajo' && <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>}
               </th>
               <th onClick={() => handleSort('sector')} className="text-left text-xs font-normal text-neutral-400 pb-3 px-2 w-24 cursor-pointer hover:text-neutral-600 select-none">
                 Sector{sortKey === 'sector' && <span className="ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>}
@@ -650,31 +745,58 @@ function EmpleadosLista({
             {loading && empleados.length === 0 ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i} className="border-t border-neutral-50">
-                  <td className="py-2 pr-3"><div className="flex items-center gap-2"><div className="w-8 h-8 bg-neutral-100 rounded-full animate-pulse" /><div className="w-24 h-3 bg-neutral-100 rounded animate-pulse" /></div></td>
-                  <td className="py-2 px-2"><div className="w-8 h-3 bg-neutral-50 rounded animate-pulse" /></td>
+                  <td className="py-2 pr-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-neutral-100 rounded-full animate-pulse" />
+                      <div className="flex flex-col gap-1">
+                        <div className="w-24 h-3 bg-neutral-100 rounded animate-pulse" />
+                        <div className="w-12 h-2 bg-neutral-50 rounded animate-pulse" />
+                      </div>
+                    </div>
+                  </td>
                   <td className="py-2 px-2"><div className="w-14 h-3 bg-neutral-50 rounded animate-pulse" /></td>
                   <td className="py-2 px-2"><div className="w-28 h-3 bg-neutral-50 rounded animate-pulse" /></td>
                   <td />
                 </tr>
               ))
-            ) : empleadosFiltrados.map(emp => {
+            ) : empleadosFiltrados.map((emp, index) => {
               const isSaving = guardando === emp.empleado_id
+              const isSelected = selectedEmpleados.some(s => s.empleado_id === emp.empleado_id)
               
               return (
-                <tr key={emp.empleado_id} className="border-t border-neutral-50 hover:bg-neutral-50/50 transition-colors">
+                <tr 
+                  key={emp.empleado_id} 
+                  className={`border-t border-neutral-50 transition-colors cursor-pointer ${
+                    isSelected 
+                      ? 'bg-[#C4322F]/5 hover:bg-[#C4322F]/10' 
+                      : 'hover:bg-neutral-50/50'
+                  }`}
+                  onClick={(e) => handleRowClick(emp, index, e)}
+                  onMouseDown={(e) => handleRowMouseDown(index, e)}
+                  onMouseEnter={() => handleRowMouseEnter(index)}
+                >
                   <td className="py-2 pr-3">
                     <div className="flex items-center gap-2">
-                      <AvatarMini foto_thumb_url={emp.foto_thumb_url} nombre_completo={emp.nombre_completo} />
-                      <span className="text-sm text-neutral-700 truncate max-w-[180px]">{emp.nombre_completo}</span>
+                      <div className="relative">
+                        <AvatarMini foto_thumb_url={emp.foto_thumb_url} nombre_completo={emp.nombre_completo} />
+                        {isSelected && (
+                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-[#C4322F] rounded-full flex items-center justify-center">
+                            <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm text-neutral-700 truncate max-w-[180px]">{emp.nombre_completo}</span>
+                        <span className="text-[10px] text-neutral-300 font-mono">{emp.legajo}</span>
+                      </div>
                     </div>
-                  </td>
-                  <td className="py-2 px-2">
-                    <span className="text-xs text-neutral-300 font-mono">{emp.legajo}</span>
                   </td>
                   <td className="py-2 px-2">
                     <span className="text-xs text-neutral-400 truncate">{emp.sector || '—'}</span>
                   </td>
-                  <td className="py-2 px-2">
+                  <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-2">
                       <RotacionDropdown
                         value={emp.rotacion_id}
@@ -703,8 +825,19 @@ function EmpleadosLista({
         <div className="text-center py-8 text-neutral-300 text-xs">No se encontraron empleados</div>
       )}
 
-      <div className="mt-4 text-xs text-neutral-300">
-        {empleadosFiltrados.length} de {stats.total} · {stats.conRotacion} con rotación · {stats.sinRotacion} sin asignar
+      <div className="mt-4 flex items-center justify-between text-xs text-neutral-300">
+        <span>{empleadosFiltrados.length} de {stats.total} · {stats.conRotacion} con rotación · {stats.sinRotacion} sin asignar</span>
+        {selectedEmpleados.length > 0 && (
+          <span className="text-[#C4322F]">
+            {selectedEmpleados.length} seleccionado{selectedEmpleados.length > 1 ? 's' : ''} 
+            <button 
+              onClick={() => onSelectionChange([])} 
+              className="ml-2 text-neutral-400 hover:text-neutral-600"
+            >
+              (limpiar)
+            </button>
+          </span>
+        )}
       </div>
     </div>
   )
@@ -721,6 +854,7 @@ function RotacionesContent() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRotacion, setEditingRotacion] = useState<Rotacion | null>(null)
   const [saving, setSaving] = useState(false)
+  const [selectedEmpleados, setSelectedEmpleados] = useState<EmpleadoSeleccionado[]>([])
 
   const cargarDatos = useCallback(async () => {
     setLoading(true)
@@ -831,11 +965,18 @@ function RotacionesContent() {
             filtroRotacion={filtroRotacion}
             setFiltroRotacion={setFiltroRotacion}
             onAsignar={handleAsignarRotacion}
+            selectedEmpleados={selectedEmpleados}
+            onSelectionChange={setSelectedEmpleados}
           />
         </div>
       </div>
       
-      <RotationsChat onRotationUpdated={handleRotationUpdated} />
+      <RotationsChat 
+        onRotationUpdated={handleRotationUpdated} 
+        selectedEmpleados={selectedEmpleados}
+        onClearSelection={() => setSelectedEmpleados([])}
+        onRemoveEmpleado={(id) => setSelectedEmpleados(prev => prev.filter(e => e.empleado_id !== id))}
+      />
 
       <RotacionModal
         isOpen={modalOpen}
