@@ -254,17 +254,38 @@ Ejemplo turno noche del martes 20:
 <tools_uso>
 1. sicamar_empleados_buscar: SIEMPRE primero si mencionan nombre.
 2. sicamar_planning_consultar: Ver planificaciones, filtrar por status/absence_reason.
-3. sicamar_planning_editar: Modificar UNA planificación (1 empleado, 1 fecha).
+3. sicamar_planning_editar: Modificar UNA planificación (1 empleado, 1 fecha). HACE UPSERT AUTOMÁTICO.
    - status: WORKING, ABSENT, REST
-   - Para WORKING: turno (mañana/tarde/noche) O hora_entrada + hora_salida
+   - Para WORKING: turno (mañana/tarde/noche) O normal_entry_at + normal_exit_at
    - Para ABSENT: absence_reason (SICK, VACATION, ACCIDENT, LICENSE, SUSPENDED, ART, ABSENT_UNJUSTIFIED)
    - Para REST: solo status
+   - Para HORAS EXTRA: usá extra_entry_at (si entra antes) o extra_exit_at (si sale después)
 4. sicamar_planning_bulk: PREFERÍ ESTA para operaciones masivas.
    - Múltiples empleados: pasá array de legajos ["245", "332", "118"]
    - Rango de fechas: fecha_desde + fecha_hasta
    - Mismo status/turno para todos
-5. sicamar_planning_limpiar: Elimina planificaciones (el empleado queda sin asignar).
-</tools_uso>`
+5. sicamar_planning_limpiar: SOLO para eliminar/vaciar planificaciones. NO uses para modificar.
+</tools_uso>
+
+<horas_extra_importante>
+PARA AGREGAR HORAS EXTRA a un turno existente, usá sicamar_planning_editar con:
+- Los campos normal_entry_at y normal_exit_at para el horario BASE del turno
+- extra_exit_at si sale DESPUÉS del turno normal
+- extra_entry_at si entra ANTES del turno normal
+
+EJEMPLO - Turno mañana con 4 horas extra (sale 18:00 en vez de 14:00):
+{
+  "legajo": "361",
+  "operational_date": "2025-12-24",
+  "status": "WORKING",
+  "normal_entry_at": "2025-12-24 06:00",
+  "normal_exit_at": "2025-12-24 14:00",
+  "extra_exit_at": "2025-12-24 18:00"
+}
+
+⚠️ NUNCA uses sicamar_planning_limpiar para modificar un registro.
+   Limpiar BORRA los datos. Para modificar, usá sicamar_planning_editar que hace upsert automático.
+</horas_extra_importante>`
 
 // ============================================================================
 // TOOL DEFINITIONS (para Claude)
@@ -309,7 +330,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'sicamar_planning_editar',
-    description: 'Edita la planificación de UN empleado para UNA fecha (operational_date). Para múltiples empleados o fechas, usá sicamar_planning_bulk.',
+    description: 'Edita la planificación de UN empleado para UNA fecha. Hace UPSERT automático (crea o modifica). Para múltiples empleados o fechas, usá sicamar_planning_bulk.',
     input_schema: {
       type: 'object',
       properties: {
@@ -325,8 +346,10 @@ const TOOLS: Anthropic.Tool[] = [
           enum: ['mañana', 'tarde', 'noche'],
           description: 'Turno rápido (solo si status=WORKING): mañana (06-14), tarde (14-22), noche (22-06)'
         },
-        hora_entrada: { type: 'string', description: 'HH:MM para horario custom (solo si status=WORKING)' },
-        hora_salida: { type: 'string', description: 'HH:MM para horario custom (solo si status=WORKING)' },
+        normal_entry_at: { type: 'string', description: 'DATETIME de entrada normal: "YYYY-MM-DD HH:MM" (ej: "2025-12-24 06:00")' },
+        normal_exit_at: { type: 'string', description: 'DATETIME de salida normal: "YYYY-MM-DD HH:MM" (ej: "2025-12-24 14:00")' },
+        extra_entry_at: { type: 'string', description: 'DATETIME si entra ANTES del turno normal (horas extra antes). Ej: "2025-12-24 04:00"' },
+        extra_exit_at: { type: 'string', description: 'DATETIME si sale DESPUÉS del turno normal (horas extra después). Ej: "2025-12-24 18:00"' },
         absence_reason: { 
           type: 'string', 
           enum: ['SICK', 'VACATION', 'ACCIDENT', 'LICENSE', 'SUSPENDED', 'ART', 'ABSENT_UNJUSTIFIED'],
@@ -531,10 +554,25 @@ export async function POST(request: NextRequest) {
       await saveMessage(activeConversationId, 'user', lastUserMessage.content)
     }
     
-    // Construir contexto dinámico (va en user message según best practices)
+    // Construir contexto dinámico con calendario claro
     let userContextPrefix = ''
+    
+    // Fecha actual con timezone de Argentina
     const hoy = new Date()
     const hoyStr = hoy.toISOString().split('T')[0]
+    const añoActual = hoy.getFullYear()
+    const mesActual = hoy.getMonth() + 1
+    const diaActual = hoy.getDate()
+    
+    // Nombres de días (getDay: 0=Domingo, 1=Lunes, ... 6=Sábado)
+    const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+    const nombreDiaHoy = DIAS_SEMANA[hoy.getDay()]
+    
+    // Helper para obtener nombre del día de una fecha string YYYY-MM-DD
+    const getNombreDia = (fechaStr: string): string => {
+      const fecha = new Date(fechaStr + 'T12:00:00') // Mediodía para evitar problemas de timezone
+      return DIAS_SEMANA[fecha.getDay()]
+    }
     
     // Calcular el lunes de la semana actual
     const lunesActual = new Date(hoy)
@@ -543,53 +581,104 @@ export async function POST(request: NextRequest) {
     lunesActual.setDate(lunesActual.getDate() + diff)
     const lunesActualStr = lunesActual.toISOString().split('T')[0]
     
-    // Calcular el lunes de la semana siguiente
+    // Calcular domingo de la semana actual
+    const domingoActual = new Date(lunesActual)
+    domingoActual.setDate(domingoActual.getDate() + 6)
+    const domingoActualStr = domingoActual.toISOString().split('T')[0]
+    
+    // Calcular el lunes y domingo de la semana siguiente
     const lunesSiguiente = new Date(lunesActual)
     lunesSiguiente.setDate(lunesSiguiente.getDate() + 7)
     const lunesSiguienteStr = lunesSiguiente.toISOString().split('T')[0]
+    const domingoSiguiente = new Date(lunesSiguiente)
+    domingoSiguiente.setDate(domingoSiguiente.getDate() + 6)
+    const domingoSiguienteStr = domingoSiguiente.toISOString().split('T')[0]
+    
+    // Generar calendario de las próximas 2 semanas con días explícitos
+    const generarCalendarioSemana = (lunesStr: string): string => {
+      const lunes = new Date(lunesStr + 'T12:00:00')
+      const lineas: string[] = []
+      for (let i = 0; i < 7; i++) {
+        const fecha = new Date(lunes)
+        fecha.setDate(fecha.getDate() + i)
+        const fechaStr = fecha.toISOString().split('T')[0]
+        const nombreDia = DIAS_SEMANA[fecha.getDay()]
+        const dd = fecha.getDate()
+        const mm = fecha.getMonth() + 1
+        lineas.push(`  ${nombreDia.padEnd(10)} = ${fechaStr} (${dd}/${mm})`)
+      }
+      return lineas.join('\n')
+    }
     
     if (context?.fechasSemana && context.fechasSemana.length >= 7) {
-      const diasNombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-      const fechasConDias = context.fechasSemana.slice(0, 7).map((f: string, i: number) => `${diasNombres[i]}: ${f}`)
+      // Mapear cada fecha de la semana visible con su día de la semana REAL
+      const fechasConDiasReales = context.fechasSemana.slice(0, 7).map((f: string) => {
+        const nombreDia = getNombreDia(f)
+        const fecha = new Date(f + 'T12:00:00')
+        const dd = fecha.getDate()
+        const mm = fecha.getMonth() + 1
+        return `  ${nombreDia.padEnd(10)} = ${f} (${dd}/${mm})`
+      })
       
       // Determinar qué semana está viendo el usuario respecto a hoy
       const primerDiaVista = context.fechasSemana[0]
       let descripcionSemana = 'la semana visible en pantalla'
       
       if (primerDiaVista === lunesActualStr) {
-        descripcionSemana = 'LA SEMANA ACTUAL (esta semana)'
+        descripcionSemana = 'SEMANA ACTUAL (esta semana)'
       } else if (primerDiaVista === lunesSiguienteStr) {
-        descripcionSemana = 'LA SEMANA SIGUIENTE (la próxima semana)'
+        descripcionSemana = 'SEMANA SIGUIENTE (la próxima)'
       } else if (primerDiaVista < lunesActualStr) {
         descripcionSemana = 'UNA SEMANA PASADA'
       } else {
         descripcionSemana = 'UNA SEMANA FUTURA'
       }
       
-      userContextPrefix = `<contexto_temporal>
-FECHA DE HOY: ${hoyStr} (${diasNombres[hoy.getDay() === 0 ? 6 : hoy.getDay() - 1]})
+      userContextPrefix = `<calendario>
+═══════════════════════════════════════════════════════════════
+HOY ES: ${nombreDiaHoy} ${diaActual} de ${['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][mesActual-1]} de ${añoActual}
+FECHA ISO: ${hoyStr}
+AÑO ACTUAL: ${añoActual}
+═══════════════════════════════════════════════════════════════
 
 SEMANA ACTUAL (donde cae hoy):
-- Lunes: ${lunesActualStr}
-- Domingo: ${new Date(new Date(lunesActualStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
+${generarCalendarioSemana(lunesActualStr)}
+
+SEMANA SIGUIENTE:
+${generarCalendarioSemana(lunesSiguienteStr)}
 
 SEMANA EN PANTALLA (${descripcionSemana}):
-${fechasConDias.join('\n')}
+${fechasConDiasReales.join('\n')}
 
-INTERPRETACIÓN DE REFERENCIAS TEMPORALES:
-- "esta semana" = semana del ${lunesActualStr} al ${new Date(new Date(lunesActualStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-- "la semana que viene" / "la próxima" / "la siguiente" = semana del ${lunesSiguienteStr} al ${new Date(new Date(lunesSiguienteStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-- "el lunes", "el martes", etc. sin más contexto = los días de "esta semana"
-</contexto_temporal>
+⚠️ IMPORTANTE - MAPEO FECHA ↔ DÍA:
+Cuando el usuario diga "el miércoles", verificá en el calendario de arriba qué FECHA corresponde.
+- Si dice "el miércoles de la semana que viene" → buscá en SEMANA SIGUIENTE
+- Si dice "este miércoles" → buscá en SEMANA ACTUAL
+- Si dice "el miércoles" sin contexto → asumí SEMANA ACTUAL
+
+NUNCA inventes fechas. SIEMPRE usá las fechas exactas del calendario de arriba.
+</calendario>
 
 `
     } else {
-      // Sin fechas de semana, al menos dar la fecha actual
-      userContextPrefix = `<contexto_temporal>
-FECHA DE HOY: ${hoyStr}
-SEMANA ACTUAL: Lunes ${lunesActualStr} a Domingo ${new Date(new Date(lunesActualStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-SEMANA SIGUIENTE: Lunes ${lunesSiguienteStr} a Domingo ${new Date(new Date(lunesSiguienteStr).getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-</contexto_temporal>
+      // Sin fechas de semana en el contexto, dar calendario completo
+      userContextPrefix = `<calendario>
+═══════════════════════════════════════════════════════════════
+HOY ES: ${nombreDiaHoy} ${diaActual} de ${['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'][mesActual-1]} de ${añoActual}
+FECHA ISO: ${hoyStr}
+AÑO ACTUAL: ${añoActual}
+═══════════════════════════════════════════════════════════════
+
+SEMANA ACTUAL (${lunesActualStr} a ${domingoActualStr}):
+${generarCalendarioSemana(lunesActualStr)}
+
+SEMANA SIGUIENTE (${lunesSiguienteStr} a ${domingoSiguienteStr}):
+${generarCalendarioSemana(lunesSiguienteStr)}
+
+⚠️ IMPORTANTE - MAPEO FECHA ↔ DÍA:
+Cuando el usuario diga "el miércoles", verificá en el calendario de arriba qué FECHA corresponde.
+NUNCA inventes fechas. SIEMPRE usá las fechas exactas del calendario de arriba.
+</calendario>
 
 `
     }

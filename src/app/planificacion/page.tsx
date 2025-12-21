@@ -301,6 +301,9 @@ export default function PlanificacionPage() {
   const [formAbsenceReason, setFormAbsenceReason] = useState<string>('')
   const [formHoraEntrada, setFormHoraEntrada] = useState<string>('06:00')
   const [formHoraSalida, setFormHoraSalida] = useState<string>('14:00')
+  // Horas extra
+  const [formExtraEntrada, setFormExtraEntrada] = useState<string>('') // Entrada antes del turno
+  const [formExtraSalida, setFormExtraSalida] = useState<string>('')   // Salida después del turno
   
   const popoverRef = useRef<HTMLDivElement>(null)
   
@@ -640,11 +643,16 @@ export default function PlanificacionPage() {
       // Extraer hora de datetime
       setFormHoraEntrada(planning.normal_entry_at ? extractTime(planning.normal_entry_at) : '06:00')
       setFormHoraSalida(planning.normal_exit_at ? extractTime(planning.normal_exit_at) : '14:00')
+      // Horas extra
+      setFormExtraEntrada(planning.extra_entry_at ? extractTime(planning.extra_entry_at) : '')
+      setFormExtraSalida(planning.extra_exit_at ? extractTime(planning.extra_exit_at) : '')
     } else {
       setFormStatus('WORKING')
       setFormAbsenceReason('')
       setFormHoraEntrada('06:00')
       setFormHoraSalida('14:00')
+      setFormExtraEntrada('')
+      setFormExtraSalida('')
     }
   }
   
@@ -671,6 +679,8 @@ export default function PlanificacionPage() {
       // Construir datetimes completos
       let normalEntryAt: string | null = null
       let normalExitAt: string | null = null
+      let extraEntryAt: string | null = null
+      let extraExitAt: string | null = null
       
       if (formStatus === 'WORKING') {
         // Detectar si es turno nocturno (entrada > salida = cruza medianoche)
@@ -687,6 +697,22 @@ export default function PlanificacionPage() {
           normalEntryAt = `${fecha} ${formHoraEntrada}`
           normalExitAt = `${fecha} ${formHoraSalida}`
         }
+        
+        // Horas extra antes del turno
+        if (formExtraEntrada) {
+          // Extra entrada es antes del turno normal, mismo día que normal_entry
+          const fechaEntrada = esNocturno 
+            ? new Date(fecha + 'T12:00:00').setDate(new Date(fecha + 'T12:00:00').getDate() - 1) && 
+              new Date(new Date(fecha + 'T12:00:00').setDate(new Date(fecha + 'T12:00:00').getDate() - 1)).toISOString().split('T')[0]
+            : fecha
+          extraEntryAt = `${fechaEntrada} ${formExtraEntrada}`
+        }
+        
+        // Horas extra después del turno
+        if (formExtraSalida) {
+          // Extra salida es después del turno normal, mismo día que normal_exit
+          extraExitAt = `${fecha} ${formExtraSalida}`
+        }
       }
       
       const payload = {
@@ -697,6 +723,8 @@ export default function PlanificacionPage() {
           absence_reason: formStatus === 'ABSENT' ? formAbsenceReason : null,
           normal_entry_at: normalEntryAt,
           normal_exit_at: normalExitAt,
+          extra_entry_at: extraEntryAt,
+          extra_exit_at: extraExitAt,
           origin: 'web'
         }]
       }
@@ -970,9 +998,11 @@ export default function PlanificacionPage() {
                       // Extraer horas de los datetimes
                       const horaEntrada = p?.normal_entry_at ? extractTimeFromDatetime(p.normal_entry_at) : null
                       const horaSalida = p?.normal_exit_at ? extractTimeFromDatetime(p.normal_exit_at) : null
+                      const extraEntrada = p?.extra_entry_at ? extractTimeFromDatetime(p.extra_entry_at) : null
+                      const extraSalida = p?.extra_exit_at ? extractTimeFromDatetime(p.extra_exit_at) : null
                       
-                      // Calcular si tiene horas extra
-                      const tieneExtra = horaEntrada && horaSalida && calcularHoras(horaEntrada, horaSalida) > 8
+                      // Calcular si tiene horas extra (basado en campos extra o jornada > 8h)
+                      const tieneExtra = extraEntrada || extraSalida || (horaEntrada && horaSalida && calcularHoras(horaEntrada, horaSalida) > 8)
                       
                       return (
                         <td 
@@ -1000,8 +1030,8 @@ export default function PlanificacionPage() {
                               {ABSENCE_LABELS[p.absence_reason] || '?'}
                             </span>
                           ) : p?.status === 'WORKING' && horaEntrada && horaSalida ? (
-                            // Mostrar horario desde-hasta
-                            <div className="relative inline-flex items-center justify-center">
+                            // Mostrar horario desde-hasta con horas extra
+                            <div className="inline-flex items-center justify-center gap-0.5">
                               {esHorarioNocturno(horaEntrada, horaSalida) ? (
                                 // Horario nocturno: entrada del día anterior
                                 <span className="text-[11px] text-neutral-600 font-medium flex items-center gap-0.5">
@@ -1016,9 +1046,18 @@ export default function PlanificacionPage() {
                                   {formatHora(horaEntrada, true)}<span className="text-neutral-200">·</span>{formatHora(horaSalida, true)}
                                 </span>
                               )}
-                              {/* Indicador de horas extra */}
-                              {tieneExtra && (
-                                <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-[#C4322F]" />
+                              {/* Indicador de horas extra con flecha y hora */}
+                              {extraSalida && (
+                                <span className="text-[11px] text-[#C4322F] font-medium flex items-center">
+                                  <span className="text-[9px]">→</span>
+                                  {formatHora(extraSalida, true)}
+                                </span>
+                              )}
+                              {extraEntrada && (
+                                <span className="text-[11px] text-[#C4322F] font-medium flex items-center order-first">
+                                  {formatHora(extraEntrada, true)}
+                                  <span className="text-[9px]">→</span>
+                                </span>
                               )}
                             </div>
                           ) : (
@@ -1197,9 +1236,73 @@ export default function PlanificacionPage() {
                 {/* Visualización de horas */}
                 {formHoraEntrada && formHoraSalida && (
                   <HorasVisualizacion 
-                    horaEntrada={formHoraEntrada} 
-                    horaSalida={formHoraSalida}
+                    horaEntrada={formExtraEntrada || formHoraEntrada} 
+                    horaSalida={formExtraSalida || formHoraSalida}
                   />
+                )}
+              </div>
+              
+              {/* Horas Extra */}
+              <div className="mb-4 p-3 bg-neutral-50 rounded-lg">
+                <label className="text-[10px] uppercase tracking-wide text-neutral-500 mb-2 block flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#C4322F]" />
+                  Horas Extra (opcional)
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] text-neutral-400 block mb-0.5">
+                      Entra antes
+                    </label>
+                    <input
+                      type="time"
+                      value={formExtraEntrada}
+                      onChange={(e) => setFormExtraEntrada(e.target.value)}
+                      placeholder="--:--"
+                      className="w-full h-7 text-xs border border-neutral-200 rounded px-2 focus:outline-none focus:border-[#C4322F] bg-white"
+                    />
+                    {formExtraEntrada && (
+                      <button 
+                        onClick={() => setFormExtraEntrada('')}
+                        className="text-[9px] text-neutral-400 hover:text-red-500 mt-0.5"
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-[9px] text-neutral-400 block mb-0.5">
+                      Sale después
+                    </label>
+                    <input
+                      type="time"
+                      value={formExtraSalida}
+                      onChange={(e) => setFormExtraSalida(e.target.value)}
+                      placeholder="--:--"
+                      className="w-full h-7 text-xs border border-neutral-200 rounded px-2 focus:outline-none focus:border-[#C4322F] bg-white"
+                    />
+                    {formExtraSalida && (
+                      <button 
+                        onClick={() => setFormExtraSalida('')}
+                        className="text-[9px] text-neutral-400 hover:text-red-500 mt-0.5"
+                      >
+                        Quitar
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {(formExtraEntrada || formExtraSalida) && (
+                  <p className="text-[9px] text-[#C4322F] mt-2">
+                    {(() => {
+                      let horasExtra = 0
+                      if (formExtraEntrada && formHoraEntrada) {
+                        horasExtra += calcularHoras(formExtraEntrada, formHoraEntrada)
+                      }
+                      if (formExtraSalida && formHoraSalida) {
+                        horasExtra += calcularHoras(formHoraSalida, formExtraSalida)
+                      }
+                      return `+${horasExtra.toFixed(1)}h extra`
+                    })()}
+                  </p>
                 )}
               </div>
             </>
