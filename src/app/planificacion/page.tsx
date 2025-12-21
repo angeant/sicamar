@@ -727,10 +727,78 @@ export default function PlanificacionPage() {
     return () => window.removeEventListener('mouseup', handleGlobalMouseUp)
   }, [isDragging, finalizarSeleccion])
   
-  // Click en celda (sin shift = popover, con shift = inicio de selección)
+  // Click en celda (sin shift = popover, con shift = inicio de selección, con cmd = agregar a chatSelection)
   const handleCeldaClick = (empleado: Empleado, fecha: string, planning: DailyPlanning | null, event: React.MouseEvent<HTMLTableCellElement>) => {
-    // Si es shift+click, no abrir popover (se maneja en mouseDown)
+    // Si es shift+click, no abrir popover (se maneja en mouseDown para drag)
     if (event.shiftKey) return
+    
+    // Cmd/Ctrl+Click: agregar/quitar celda de la selección para el chat
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault()
+      const empData = {
+        id: empleado.id,
+        legajo: empleado.legajo,
+        nombre: `${empleado.apellido}, ${empleado.nombre}`
+      }
+      
+      setChatSelection(prev => {
+        if (!prev) {
+          // Primera celda seleccionada
+          return {
+            empleados: [empData],
+            fechas: [fecha]
+          }
+        }
+        
+        // Verificar si esta celda ya está en la selección
+        const empleadoExists = prev.empleados.some(e => e.id === empleado.id)
+        const fechaExists = prev.fechas.includes(fecha)
+        
+        // Si tanto el empleado como la fecha ya están, verificamos si es la misma "celda"
+        // Para esto usamos un enfoque diferente: mantenemos un registro de celdas individuales
+        const cellKey = `${empleado.id}_${fecha}`
+        
+        // Creamos una lista de celdas seleccionadas para verificar
+        // Pero como la estructura actual es empleados[] + fechas[], 
+        // vamos a agregar el empleado si no existe Y la fecha si no existe
+        let newEmpleados = [...prev.empleados]
+        let newFechas = [...prev.fechas]
+        
+        if (!empleadoExists) {
+          newEmpleados.push(empData)
+        }
+        if (!fechaExists) {
+          newFechas.push(fecha)
+        }
+        
+        // Si ambos ya existían, los quitamos (toggle)
+        if (empleadoExists && fechaExists) {
+          // Solo quitar si quedan otros
+          if (prev.empleados.length > 1 || prev.fechas.length > 1) {
+            // Quitar este empleado si no hay otras fechas que lo necesiten
+            // Por simplicidad, solo quitamos si es el único en su combinación
+            newEmpleados = prev.empleados.filter(e => e.id !== empleado.id)
+            newFechas = prev.fechas.filter(f => f !== fecha)
+            
+            // Si queda vacío, retornar null
+            if (newEmpleados.length === 0 || newFechas.length === 0) {
+              return null
+            }
+          } else {
+            // Si es la única celda, limpiar todo
+            return null
+          }
+        }
+        
+        return {
+          empleados: newEmpleados,
+          fechas: newFechas
+        }
+      })
+      return
+    }
+    
+    // Click normal: abrir popover de edición
     const rect = event.currentTarget.getBoundingClientRect()
     
     setCeldaSeleccionada({
@@ -1148,8 +1216,8 @@ export default function PlanificacionPage() {
                             ${esHoy(fecha) ? 'bg-[#C4322F]/[0.03]' : ''} 
                             ${isPopoverSelected ? 'ring-2 ring-[#C4322F] ring-inset' : ''}
                             ${isDragSelected ? 'bg-[#C4322F]/10 ring-1 ring-[#C4322F]/30 ring-inset' : ''}
-                            ${isChatSelected && !isDragSelected ? 'bg-[#C4322F]/5' : ''}
-                            ${!isPopoverSelected && !isDragSelected ? 'hover:bg-neutral-100/50' : ''}
+                            ${isChatSelected && !isDragSelected && !isPopoverSelected ? 'bg-[#C4322F]/10 ring-1 ring-[#C4322F]/40 ring-inset' : ''}
+                            ${!isPopoverSelected && !isDragSelected && !isChatSelected ? 'hover:bg-neutral-100/50' : ''}
                             ${isAnimated ? 'celda-animada' : ''}
                           `}
                         >
@@ -1211,6 +1279,8 @@ export default function PlanificacionPage() {
             <span><span className="text-neutral-600">06·14</span> mañana</span>
             <span><span className="text-neutral-600">14·22</span> tarde</span>
             <span><span className="text-[#C4322F]">←</span><span className="text-neutral-500">22·06</span> noche (entrada día anterior)</span>
+            <span className="text-neutral-200">|</span>
+            <span><span className="text-neutral-500">⌘+click</span> agregar celdas al chat</span>
             <span className="text-neutral-200">|</span>
             <span>vac · vacaciones</span>
             <span>enf · enfermedad</span>
