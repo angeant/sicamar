@@ -22,11 +22,20 @@ interface ChatSelection {
   fechas: string[]
 }
 
+interface EmpleadoSeleccionado {
+  id: number
+  legajo: string
+  nombre: string
+}
+
 interface PlanningChatProps {
   fechasSemana?: string[]
   onJornadaUpdated?: () => void
   selection?: ChatSelection | null
   onClearSelection?: () => void
+  selectedEmpleados?: EmpleadoSeleccionado[]
+  onClearEmpleadoSelection?: () => void
+  onRemoveEmpleado?: (id: number) => void
 }
 
 // Helper para obtener el conversation_id guardado del usuario
@@ -150,7 +159,15 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
   )
 }
 
-export default function PlanningChat({ fechasSemana, onJornadaUpdated, selection, onClearSelection }: PlanningChatProps) {
+export default function PlanningChat({ 
+  fechasSemana, 
+  onJornadaUpdated, 
+  selection, 
+  onClearSelection,
+  selectedEmpleados = [],
+  onClearEmpleadoSelection,
+  onRemoveEmpleado
+}: PlanningChatProps) {
   const { user } = useUser()
   const userEmail = user?.primaryEmailAddress?.emailAddress || ''
   
@@ -243,17 +260,37 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated, selection
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
     
+    // Construir el mensaje con contexto de empleados seleccionados
+    let messageContent = input.trim()
+    
+    if (selectedEmpleados.length > 0) {
+      // Agregar contexto de empleados seleccionados de forma compacta
+      const legajos = selectedEmpleados.map(e => e.legajo).join(', ')
+      messageContent = `[Empleados seleccionados: legajos ${legajos}]\n\n${messageContent}`
+    }
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
+      content: messageContent
+    }
+    
+    // Para mostrar al usuario, solo mostramos el input sin el contexto
+    const displayMessage: Message = {
+      ...userMessage,
       content: input.trim()
     }
     
-    setMessages(prev => [...prev, userMessage])
+    setMessages(prev => [...prev, displayMessage])
     setInput('')
     setIsLoading(true)
     setCurrentThinking(null)
     setErrorMessage(null)
+    
+    // Limpiar selección de empleados después de enviar
+    if (selectedEmpleados.length > 0) {
+      onClearEmpleadoSelection?.()
+    }
     
     try {
       const response = await fetch('/api/sicamar/chat', {
@@ -520,10 +557,43 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated, selection
       
       {/* Input */}
       <div className="flex-shrink-0 px-3 py-3 border-t border-zinc-800/50">
-        {/* Chip de selección */}
+        {/* Badges de empleados seleccionados (desde columna izquierda) */}
+        {selectedEmpleados.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {selectedEmpleados.slice(0, 5).map((emp) => (
+              <span 
+                key={emp.id}
+                className="inline-flex items-center gap-1 bg-[#C4322F]/20 text-[#C4322F] text-[9px] px-1.5 py-0.5 rounded"
+              >
+                <span className="font-mono">{emp.legajo}</span>
+                <button 
+                  onClick={() => onRemoveEmpleado?.(emp.id)}
+                  className="hover:text-white transition-colors"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            {selectedEmpleados.length > 5 && (
+              <span className="text-[9px] text-zinc-500">
+                +{selectedEmpleados.length - 5} más
+              </span>
+            )}
+            {selectedEmpleados.length > 1 && (
+              <button 
+                onClick={onClearEmpleadoSelection}
+                className="text-[9px] text-zinc-500 hover:text-zinc-300 ml-1"
+              >
+                limpiar
+              </button>
+            )}
+          </div>
+        )}
+        
+        {/* Chip de selección de celdas (empleados + fechas) */}
         {selection && selection.empleados.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-1">
-            <div className="flex items-center gap-1 bg-[#C4322F]/20 border border-[#C4322F]/30 rounded px-2 py-1 text-[10px] text-[#C4322F] max-w-full">
+            <div className="flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-300 max-w-full">
               <span className="truncate">
                 {selection.empleados.length === 1 
                   ? `${selection.empleados[0].legajo} · ${selection.empleados[0].nombre.split(',')[0]}`
@@ -537,7 +607,7 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated, selection
               </span>
               <button
                 onClick={onClearSelection}
-                className="ml-1 hover:bg-[#C4322F]/30 rounded p-0.5 transition-colors"
+                className="ml-1 hover:bg-zinc-700 rounded p-0.5 transition-colors"
               >
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M18 6L6 18M6 6l12 12" />
@@ -554,7 +624,13 @@ export default function PlanningChat({ fechasSemana, onJornadaUpdated, selection
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={selection ? "Ej: turno tarde, vacaciones..." : "Escribí algo..."}
+            placeholder={
+              selectedEmpleados.length > 0 
+                ? `Aplicar a ${selectedEmpleados.length} empleado${selectedEmpleados.length > 1 ? 's' : ''}...`
+                : selection 
+                  ? "Ej: turno tarde, vacaciones..." 
+                  : "Escribí algo..."
+            }
             disabled={isLoading}
             className="flex-1 h-7 bg-zinc-900 border border-zinc-800 rounded px-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-50"
           />

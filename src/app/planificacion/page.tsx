@@ -286,7 +286,7 @@ export default function PlanificacionPage() {
   const [celdasAnimadas, setCeldasAnimadas] = useState<Set<string>>(new Set())
   const empleadosRef = useRef<EmpleadoConPlanificacion[]>([])
   
-  // Selección múltiple para el chat
+  // Selección múltiple para el chat (celdas = empleados + fechas)
   interface ChatSelection {
     empleados: { id: number; legajo: string; nombre: string }[]
     fechas: string[]
@@ -295,6 +295,16 @@ export default function PlanificacionPage() {
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState<{ empleadoIdx: number; fechaIdx: number } | null>(null)
   const [dragEnd, setDragEnd] = useState<{ empleadoIdx: number; fechaIdx: number } | null>(null)
+  
+  // Selección de empleados (solo empleados, sin fechas) - estilo rotaciones
+  interface EmpleadoSeleccionado {
+    id: number
+    legajo: string
+    nombre: string
+  }
+  const [selectedEmpleados, setSelectedEmpleados] = useState<EmpleadoSeleccionado[]>([])
+  const [isDraggingEmpleados, setIsDraggingEmpleados] = useState(false)
+  const [dragEmpleadoStart, setDragEmpleadoStart] = useState<number | null>(null)
   
   // Form state para edición
   const [formStatus, setFormStatus] = useState<PlanningStatus>('WORKING')
@@ -611,6 +621,100 @@ export default function PlanificacionPage() {
     setChatSelection(null)
   }, [])
   
+  // === FUNCIONES PARA SELECCIÓN DE EMPLEADOS (estilo rotaciones) ===
+  
+  // Manejar click en nombre de empleado
+  const handleEmpleadoClick = (emp: EmpleadoConPlanificacion, index: number, event: React.MouseEvent) => {
+    event.stopPropagation()
+    const empData: EmpleadoSeleccionado = {
+      id: emp.empleado.id,
+      legajo: emp.empleado.legajo,
+      nombre: `${emp.empleado.apellido}, ${emp.empleado.nombre}`
+    }
+    const isSelected = selectedEmpleados.some(s => s.id === emp.empleado.id)
+    
+    if (event.metaKey || event.ctrlKey) {
+      // Cmd/Ctrl+Click: toggle individual
+      if (isSelected) {
+        setSelectedEmpleados(prev => prev.filter(s => s.id !== emp.empleado.id))
+      } else {
+        setSelectedEmpleados(prev => [...prev, empData])
+      }
+    } else if (event.shiftKey && selectedEmpleados.length > 0) {
+      // Shift+Click: seleccionar rango
+      const lastSelectedId = selectedEmpleados[selectedEmpleados.length - 1].id
+      const lastIndex = empleados.findIndex(e => e.empleado.id === lastSelectedId)
+      const startIdx = Math.min(lastIndex, index)
+      const endIdx = Math.max(lastIndex, index)
+      
+      const rangeSelection = empleados.slice(startIdx, endIdx + 1).map(e => ({
+        id: e.empleado.id,
+        legajo: e.empleado.legajo,
+        nombre: `${e.empleado.apellido}, ${e.empleado.nombre}`
+      }))
+      
+      // Merge sin duplicados
+      const existingIds = new Set(selectedEmpleados.map(s => s.id))
+      const newSelection = [...selectedEmpleados]
+      for (const e of rangeSelection) {
+        if (!existingIds.has(e.id)) {
+          newSelection.push(e)
+        }
+      }
+      setSelectedEmpleados(newSelection)
+    } else {
+      // Click simple
+      if (isSelected && selectedEmpleados.length === 1) {
+        setSelectedEmpleados([])
+      } else {
+        setSelectedEmpleados([empData])
+      }
+    }
+  }
+  
+  // Manejar inicio de drag en empleado
+  const handleEmpleadoMouseDown = (index: number, event: React.MouseEvent) => {
+    if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      setIsDraggingEmpleados(true)
+      setDragEmpleadoStart(index)
+    }
+  }
+  
+  // Manejar mouse enter durante drag de empleados
+  const handleEmpleadoMouseEnter = (index: number) => {
+    if (isDraggingEmpleados && dragEmpleadoStart !== null) {
+      const startIdx = Math.min(dragEmpleadoStart, index)
+      const endIdx = Math.max(dragEmpleadoStart, index)
+      
+      const rangeSelection = empleados.slice(startIdx, endIdx + 1).map(e => ({
+        id: e.empleado.id,
+        legajo: e.empleado.legajo,
+        nombre: `${e.empleado.apellido}, ${e.empleado.nombre}`
+      }))
+      setSelectedEmpleados(rangeSelection)
+    }
+  }
+  
+  // Efecto para terminar drag de empleados
+  useEffect(() => {
+    const handleMouseUp = () => {
+      setIsDraggingEmpleados(false)
+      setDragEmpleadoStart(null)
+    }
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => document.removeEventListener('mouseup', handleMouseUp)
+  }, [])
+  
+  // Limpiar selección de empleados
+  const clearEmpleadoSelection = useCallback(() => {
+    setSelectedEmpleados([])
+  }, [])
+  
+  // Quitar un empleado de la selección
+  const removeEmpleadoFromSelection = useCallback((id: number) => {
+    setSelectedEmpleados(prev => prev.filter(e => e.id !== id))
+  }, [])
+  
   // Efecto para limpiar drag si se suelta el mouse fuera
   useEffect(() => {
     const handleGlobalMouseUp = () => {
@@ -919,7 +1023,12 @@ export default function PlanificacionPage() {
             <thead>
               <tr>
                 <th className="text-left text-xs font-normal text-neutral-400 pb-4 pr-6 w-48">
-                  Empleado
+                  <div className="flex items-center gap-2">
+                    <span>Empleado</span>
+                    <span className="text-[9px] text-neutral-300" title="Click para seleccionar, ⌘+click para agregar, arrastrar para múltiples">
+                      ⌘ click · drag
+                    </span>
+                  </div>
                 </th>
                 {fechas.map((fecha) => {
                   const d = new Date(fecha + 'T12:00:00')
@@ -971,15 +1080,38 @@ export default function PlanificacionPage() {
                       ))}
                     </tr>
                   ))
-                ) : empleados.map(({ empleado, planificacion }, empleadoIdx) => (
+                ) : empleados.map(({ empleado, planificacion }, empleadoIdx) => {
+                  const isEmpleadoSelected = selectedEmpleados.some(s => s.id === empleado.id)
+                  
+                  return (
                   <tr key={empleado.id} className="border-t border-neutral-50 hover:bg-neutral-50/50 transition-colors">
-                    <td className="py-2 pr-6">
+                    <td 
+                      className={`py-2 pr-6 cursor-pointer select-none transition-colors ${
+                        isEmpleadoSelected 
+                          ? 'bg-[#C4322F]/5' 
+                          : 'hover:bg-neutral-100/50'
+                      }`}
+                      onClick={(e) => handleEmpleadoClick({ empleado, planificacion }, empleadoIdx, e)}
+                      onMouseDown={(e) => handleEmpleadoMouseDown(empleadoIdx, e)}
+                      onMouseEnter={() => handleEmpleadoMouseEnter(empleadoIdx)}
+                    >
                       <div className="flex items-center gap-3">
-                        <span className="text-xs text-neutral-300 font-mono w-8">
-                          {empleado.legajo}
-                        </span>
+                        <div className="relative">
+                          <span className={`text-xs font-mono w-8 block ${
+                            isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-300'
+                          }`}>
+                            {empleado.legajo}
+                          </span>
+                          {isEmpleadoSelected && (
+                            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-[#C4322F] rounded-full flex items-center justify-center">
+                              <svg width="5" height="5" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            </div>
+                          )}
+                        </div>
                         <div>
-                          <p className="text-sm text-neutral-700">
+                          <p className={`text-sm ${isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-700'}`}>
                             {empleado.apellido}
                           </p>
                           <p className="text-[10px] text-neutral-400">
@@ -1068,7 +1200,7 @@ export default function PlanificacionPage() {
                       )
                     })}
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -1093,8 +1225,19 @@ export default function PlanificacionPage() {
         </div>
         
         {/* Stats */}
-        <div className="mt-4 text-xs text-neutral-300">
-          {empleados.length} empleados jornalizados
+        <div className="mt-4 flex items-center justify-between text-xs text-neutral-300">
+          <span>{empleados.length} empleados jornalizados</span>
+          {selectedEmpleados.length > 0 && (
+            <span className="text-[#C4322F]">
+              {selectedEmpleados.length} seleccionado{selectedEmpleados.length > 1 ? 's' : ''} 
+              <button 
+                onClick={clearEmpleadoSelection} 
+                className="ml-2 text-neutral-400 hover:text-neutral-600"
+              >
+                (limpiar)
+              </button>
+            </span>
+          )}
         </div>
       </div>
       
@@ -1347,6 +1490,9 @@ export default function PlanificacionPage() {
         onJornadaUpdated={cargarDatosConAnimacion}
         selection={chatSelection}
         onClearSelection={clearChatSelection}
+        selectedEmpleados={selectedEmpleados}
+        onClearEmpleadoSelection={clearEmpleadoSelection}
+        onRemoveEmpleado={removeEmpleadoFromSelection}
       />
     </div>
   )
