@@ -531,56 +531,49 @@ export default function RotationsChat({
       
       {/* Input */}
       <div className="flex-shrink-0 px-3 py-3 border-t border-zinc-800/50">
-        {/* Badges de empleados seleccionados */}
-        {selectedEmpleados.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
-            {selectedEmpleados.slice(0, 5).map((emp) => (
+        <div className="flex items-start gap-1.5">
+          {/* Input con badges dentro */}
+          <div 
+            className={`flex-1 min-h-[28px] bg-zinc-900 border border-zinc-800 rounded px-2 py-1 flex flex-wrap items-center gap-1 cursor-text ${
+              isLoading ? 'opacity-50' : ''
+            } focus-within:border-zinc-600`}
+            onClick={() => inputRef.current?.focus()}
+          >
+            {/* Badges de empleados seleccionados */}
+            {selectedEmpleados.slice(0, 4).map((emp) => (
               <span 
                 key={emp.empleado_id}
-                className="inline-flex items-center gap-1 bg-[#C4322F]/20 text-[#C4322F] text-[9px] px-1.5 py-0.5 rounded"
+                className="inline-flex items-center gap-0.5 bg-[#C4322F]/25 text-[#C4322F] text-[9px] px-1 py-0.5 rounded flex-shrink-0"
               >
                 <span className="font-mono">{emp.legajo}</span>
                 <button 
-                  onClick={() => onRemoveEmpleado?.(emp.empleado_id)}
-                  className="hover:text-white transition-colors"
+                  onClick={(e) => { e.stopPropagation(); onRemoveEmpleado?.(emp.empleado_id) }}
+                  className="hover:text-white transition-colors ml-0.5"
                 >
                   ×
                 </button>
               </span>
             ))}
-            {selectedEmpleados.length > 5 && (
-              <span className="text-[9px] text-zinc-500">
-                +{selectedEmpleados.length - 5} más
+            {selectedEmpleados.length > 4 && (
+              <span className="text-[9px] text-zinc-500 flex-shrink-0">
+                +{selectedEmpleados.length - 4}
               </span>
             )}
-            {selectedEmpleados.length > 1 && (
-              <button 
-                onClick={onClearSelection}
-                className="text-[9px] text-zinc-500 hover:text-zinc-300 ml-1"
-              >
-                limpiar
-              </button>
-            )}
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={selectedEmpleados.length > 0 ? "acción..." : "Escribí algo..."}
+              disabled={isLoading}
+              className="flex-1 min-w-[60px] bg-transparent text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+            />
           </div>
-        )}
-        
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={selectedEmpleados.length > 0 
-              ? `Aplicar a ${selectedEmpleados.length} empleado${selectedEmpleados.length > 1 ? 's' : ''}...`
-              : "Escribí algo..."}
-            disabled={isLoading}
-            className="flex-1 h-7 bg-zinc-900 border border-zinc-800 rounded px-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-50"
-          />
           <button
             onClick={sendMessage}
             disabled={isLoading || !input.trim()}
-            className="h-7 w-7 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800 rounded flex items-center justify-center transition-colors"
+            className="h-7 w-7 flex-shrink-0 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800 rounded flex items-center justify-center transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
               <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />

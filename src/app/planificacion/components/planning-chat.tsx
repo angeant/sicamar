@@ -557,87 +557,77 @@ export default function PlanningChat({
       
       {/* Input */}
       <div className="flex-shrink-0 px-3 py-3 border-t border-zinc-800/50">
-        {/* Badges de empleados seleccionados (desde columna izquierda) */}
-        {selectedEmpleados.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
-            {selectedEmpleados.slice(0, 5).map((emp) => (
+        <div className="flex items-start gap-1.5">
+          {/* Input con badges dentro */}
+          <div 
+            className={`flex-1 min-h-[28px] bg-zinc-900 border border-zinc-800 rounded px-2 py-1 flex flex-wrap items-center gap-1 cursor-text ${
+              isLoading ? 'opacity-50' : ''
+            } focus-within:border-zinc-600`}
+            onClick={() => inputRef.current?.focus()}
+          >
+            {/* Badges de empleados seleccionados (desde columna izquierda) */}
+            {selectedEmpleados.slice(0, 3).map((emp) => (
               <span 
                 key={emp.id}
-                className="inline-flex items-center gap-1 bg-[#C4322F]/20 text-[#C4322F] text-[9px] px-1.5 py-0.5 rounded"
+                className="inline-flex items-center gap-0.5 bg-[#C4322F]/25 text-[#C4322F] text-[9px] px-1 py-0.5 rounded flex-shrink-0"
               >
                 <span className="font-mono">{emp.legajo}</span>
                 <button 
-                  onClick={() => onRemoveEmpleado?.(emp.id)}
-                  className="hover:text-white transition-colors"
+                  onClick={(e) => { e.stopPropagation(); onRemoveEmpleado?.(emp.id) }}
+                  className="hover:text-white transition-colors ml-0.5"
                 >
                   ×
                 </button>
               </span>
             ))}
-            {selectedEmpleados.length > 5 && (
-              <span className="text-[9px] text-zinc-500">
-                +{selectedEmpleados.length - 5} más
+            {selectedEmpleados.length > 3 && (
+              <span className="text-[9px] text-zinc-500 flex-shrink-0">
+                +{selectedEmpleados.length - 3}
               </span>
             )}
-            {selectedEmpleados.length > 1 && (
-              <button 
-                onClick={onClearEmpleadoSelection}
-                className="text-[9px] text-zinc-500 hover:text-zinc-300 ml-1"
-              >
-                limpiar
-              </button>
-            )}
-          </div>
-        )}
-        
-        {/* Chip de selección de celdas (empleados + fechas) */}
-        {selection && selection.empleados.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
-            <div className="flex items-center gap-1 bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-[10px] text-zinc-300 max-w-full">
-              <span className="truncate">
-                {selection.empleados.length === 1 
-                  ? `${selection.empleados[0].legajo} · ${selection.empleados[0].nombre.split(',')[0]}`
-                  : `${selection.empleados.length} empleados`
-                }
-                {' · '}
-                {selection.fechas.length === 1
-                  ? new Date(selection.fechas[0] + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' })
-                  : `${selection.fechas.length} días`
-                }
+            
+            {/* Chip de selección de celdas (empleados + fechas) */}
+            {selection && selection.empleados.length > 0 && (
+              <span className="inline-flex items-center gap-1 bg-zinc-800 text-[9px] text-zinc-300 px-1.5 py-0.5 rounded flex-shrink-0">
+                <span className="truncate max-w-[100px]">
+                  {selection.empleados.length === 1 
+                    ? selection.empleados[0].legajo
+                    : `${selection.empleados.length}emp`
+                  }
+                  ·
+                  {selection.fechas.length === 1
+                    ? new Date(selection.fechas[0] + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+                    : `${selection.fechas.length}d`
+                  }
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onClearSelection?.() }}
+                  className="hover:text-white transition-colors"
+                >
+                  ×
+                </button>
               </span>
-              <button
-                onClick={onClearSelection}
-                className="ml-1 hover:bg-zinc-700 rounded p-0.5 transition-colors"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M18 6L6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        )}
-        
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              selectedEmpleados.length > 0 
-                ? `Aplicar a ${selectedEmpleados.length} empleado${selectedEmpleados.length > 1 ? 's' : ''}...`
-                : selection 
-                  ? "Ej: turno tarde, vacaciones..." 
+            )}
+            
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                selectedEmpleados.length > 0 || selection
+                  ? "acción..." 
                   : "Escribí algo..."
-            }
-            disabled={isLoading}
-            className="flex-1 h-7 bg-zinc-900 border border-zinc-800 rounded px-2.5 text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600 disabled:opacity-50"
-          />
+              }
+              disabled={isLoading}
+              className="flex-1 min-w-[50px] bg-transparent text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+            />
+          </div>
           <button
             onClick={sendMessage}
             disabled={isLoading || !input.trim()}
-            className="h-7 w-7 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800 rounded flex items-center justify-center transition-colors"
+            className="h-7 w-7 flex-shrink-0 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800 rounded flex items-center justify-center transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">
               <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" />
