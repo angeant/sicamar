@@ -789,7 +789,7 @@ function EmpleadosLista({
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="text-sm text-neutral-700 truncate max-w-[180px]">{emp.nombre_completo}</span>
-                        <span className="text-[10px] text-neutral-300 font-mono">{emp.legajo}</span>
+                        <span className="text-[10px] text-neutral-500 font-mono">{emp.legajo}</span>
                       </div>
                     </div>
                   </td>

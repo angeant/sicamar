@@ -1202,7 +1202,7 @@ export default function PlanificacionPage() {
                           <span className={`text-sm truncate max-w-[140px] ${isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-700'}`}>
                             {empleado.apellido}, {empleado.nombre}
                           </span>
-                          <span className="text-[10px] text-neutral-300 font-mono">{empleado.legajo}</span>
+                          <span className="text-[10px] text-neutral-500 font-mono">{empleado.legajo}</span>
                         </div>
                       </div>
                     </td>

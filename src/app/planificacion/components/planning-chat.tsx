@@ -508,7 +508,7 @@ export default function PlanningChat({
           <div key={message.id} className={`${message.role === 'user' ? 'ml-4' : ''}`}>
             {message.role === 'user' ? (
               <div className="bg-zinc-800 rounded px-2.5 py-1.5">
-                <p className="text-[11px] text-zinc-200 whitespace-pre-wrap">{message.content}</p>
+                <p className="text-[13px] text-zinc-200 whitespace-pre-wrap">{message.content}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -532,7 +532,7 @@ export default function PlanningChat({
                 
                 {/* Message content */}
                 {message.content && (
-                  <p className="text-[11px] text-zinc-300 whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  <p className="text-[13px] text-zinc-300 whitespace-pre-wrap leading-relaxed">{message.content}</p>
                 )}
               </div>
             )}
@@ -621,7 +621,7 @@ export default function PlanningChat({
                   : "Escribí algo..."
               }
               disabled={isLoading}
-              className="flex-1 min-w-[50px] bg-transparent text-[11px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+              className="flex-1 min-w-[50px] bg-transparent text-[13px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
             />
           </div>
           <button

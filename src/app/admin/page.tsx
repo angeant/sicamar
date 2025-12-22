@@ -34,7 +34,7 @@ interface Conversation {
 const AGENTS = [
   { key: 'all', label: 'Todos', filter: null },
   { key: 'planificacion', label: 'Planificación', filter: 'Agente de Planificación - Web' },
-  { key: 'posiciones', label: 'Posiciones', filter: 'Agente de Posiciones - Web' },
+  { key: 'rotaciones', label: 'Turnos y Rotaciones', filter: 'Agente de Rotaciones - Web' },
 ]
 
 interface UserGroup {

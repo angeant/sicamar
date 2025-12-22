@@ -53,3 +53,4 @@ COMMENT ON COLUMN sicamar.daily_planning.normal_exit_at IS 'Timestamp de salida 
 COMMENT ON COLUMN sicamar.daily_planning.origin IS 'Origen de la planificación: web, chat, mcp, import';
 
 
+

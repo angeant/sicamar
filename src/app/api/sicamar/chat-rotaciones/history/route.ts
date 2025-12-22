@@ -1,10 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseServer } from '@/lib/supabase-server'
+import { currentUser } from '@clerk/nextjs/server'
 
 const AGENT_NAME = 'Agente de Rotaciones - Web'
 
 export async function GET(request: NextRequest) {
   try {
+    // Obtener el usuario actual desde Clerk
+    const user = await currentUser()
+    const userEmail = user?.primaryEmailAddress?.emailAddress
+    
+    if (!userEmail) {
+      return NextResponse.json({ success: true, messages: [], conversation_id: null })
+    }
+    
     const searchParams = request.nextUrl.searchParams
     const conversationId = searchParams.get('conversation_id')
     
@@ -26,9 +35,11 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('agent_name', AGENT_NAME)
+      .eq('user_email', userEmail)  // ✅ FILTRAR POR EMAIL DEL USUARIO
       .order('last_message_at', { ascending: false })
       .limit(1)
     
+    // Si piden una conversación específica, verificar que sea del usuario
     if (conversationId) {
       query = query.eq('id', conversationId)
     }
@@ -69,4 +80,5 @@ export async function GET(request: NextRequest) {
     }, { status: 500 })
   }
 }
+
 

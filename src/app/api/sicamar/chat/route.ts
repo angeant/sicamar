@@ -247,9 +247,21 @@ Ejemplo turno noche del martes 20:
 - NO uses emojis ni formateo excesivo.
 - Cuando mencionen un empleado por nombre, SIEMPRE buscá primero su legajo.
 - Cuando digas día de la semana, usá las fechas del contexto actual.
-- Si vas a hacer múltiples operaciones independientes, ejecutá las tools EN PARALELO.
 - Mencioná legajo y nombre cuando hables de alguien.
 </comportamiento>
+
+<parallel_tool_calls>
+CRÍTICO: Cuando el usuario mencione MÚLTIPLES empleados o pida hacer MÚLTIPLES operaciones:
+- LLAMÁ TODAS las tools necesarias EN UNA SOLA RESPUESTA, no una por una.
+- Ejemplo: Si dicen "poné a García, López y Pérez de mañana", llamá sicamar_empleados_buscar 3 veces EN PARALELO en la misma respuesta.
+- Después de buscar, usá sicamar_planning_bulk para todos juntos, O llamá sicamar_planning_editar para CADA empleado EN PARALELO.
+- NUNCA hagas una búsqueda, esperá respuesta, y luego otra búsqueda. Hacé TODAS juntas.
+
+Ejemplo correcto:
+Usuario: "Poné a García, López y Pérez turno mañana mañana"
+Tu respuesta: [tool_use: sicamar_empleados_buscar "García"], [tool_use: sicamar_empleados_buscar "López"], [tool_use: sicamar_empleados_buscar "Pérez"]
+(Todo en una sola respuesta, no 3 respuestas separadas)
+</parallel_tool_calls>
 
 <tools_uso>
 1. sicamar_empleados_buscar: SIEMPRE primero si mencionan nombre.
@@ -434,13 +446,14 @@ const TOOL_TO_MCP: Record<string, string> = {
 const AGENT_NAME = 'Agente de Planificación - Web'
 
 async function getOrCreateConversation(conversationId: string | null, userEmail?: string): Promise<string> {
-  // 1. Si hay un conversation_id válido, verificar que existe y usarlo
-  if (conversationId) {
+  // 1. Si hay un conversation_id válido, verificar que existe Y PERTENECE AL USUARIO
+  if (conversationId && userEmail) {
     const { data: existing } = await supabaseServer
       .schema('sicamar')
       .from('conversations')
       .select('id')
       .eq('id', conversationId)
+      .eq('user_email', userEmail)  // ✅ Verificar que pertenece al usuario
       .single()
     
     if (existing) {
@@ -508,7 +521,29 @@ async function getOrCreateConversation(conversationId: string | null, userEmail?
   return newConv.id
 }
 
-async function saveMessage(conversationId: string, role: 'user' | 'assistant', content: string, toolCalls?: Array<{ name: string; input: unknown; result?: unknown }>) {
+interface MessageMetadata {
+  request_payload?: {
+    model: string
+    messages_count: number
+    messages_preview: Array<{ role: string; content_length: number }>
+    tools_count: number
+    system_prompt_length: number
+    timestamp?: string
+  }
+  response_info?: {
+    stop_reason: string | null
+    tool_calls_count: number
+    text_length: number
+  }
+}
+
+async function saveMessage(
+  conversationId: string, 
+  role: 'user' | 'assistant', 
+  content: string, 
+  toolCalls?: Array<{ name: string; input: unknown; result?: unknown }>,
+  metadata?: MessageMetadata
+) {
   const { error } = await supabaseServer
     .schema('sicamar')
     .from('messages')
@@ -517,6 +552,7 @@ async function saveMessage(conversationId: string, role: 'user' | 'assistant', c
       role,
       content,
       tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : null,
+      metadata: metadata || null,
       created_at: new Date().toISOString()
     })
   
@@ -705,15 +741,40 @@ Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selec
 `
     }
     
-    // Preparar mensajes - inyectar contexto en el ÚLTIMO mensaje del usuario
+    // Preparar mensajes - limitar contexto para evitar que Claude "olvide" las tools
+    // Con conversaciones muy largas, Claude pierde contexto de que tiene tools disponibles
+    const MAX_MESSAGES = 20  // Últimos 20 mensajes (~10 intercambios user/assistant)
+    
+    const recentMessages = messages.slice(-MAX_MESSAGES)
+    
+    // Si hay historial previo, agregar un resumen al principio
+    const historyNote = messages.length > MAX_MESSAGES 
+      ? `[Nota: Esta conversación tiene ${messages.length} mensajes. Mostrando los últimos ${MAX_MESSAGES}. Tenés herramientas para buscar empleados, consultar/editar planificación, y hacer operaciones masivas.]`
+      : null
+    
+    // Inyectar contexto en el ÚLTIMO mensaje del usuario
     // Así siempre tiene el contexto temporal actualizado aunque cambie la semana en pantalla
-    const lastUserIdx = messages.map((m: { role: string }) => m.role).lastIndexOf('user')
-    const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg: { role: string; content: string }, idx: number) => ({
-      role: msg.role as 'user' | 'assistant',
-      content: idx === lastUserIdx && msg.role === 'user' && userContextPrefix 
-        ? userContextPrefix + msg.content 
-        : msg.content
-    }))
+    const lastUserIdx = recentMessages.map((m: { role: string }) => m.role).lastIndexOf('user')
+    const anthropicMessages: Anthropic.MessageParam[] = recentMessages.map((msg: { role: string; content: string }, idx: number) => {
+      let content = msg.content
+      
+      // En el primer mensaje, agregar nota de historial si corresponde
+      if (historyNote && idx === 0 && msg.role === 'user') {
+        content = `${historyNote}\n\n${content}`
+      }
+      
+      // En el último mensaje del usuario, agregar contexto temporal
+      if (idx === lastUserIdx && msg.role === 'user' && userContextPrefix) {
+        content = userContextPrefix + content
+      }
+      
+      return {
+        role: msg.role as 'user' | 'assistant',
+        content
+      }
+    })
+    
+    console.error(`[CHAT-PLANNING] Prepared ${anthropicMessages.length} messages (from ${messages.length} total)`)
     
     const encoder = new TextEncoder()
     const stream = new TransformStream()
@@ -727,6 +788,7 @@ Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selec
     // Track final response for persistence
     let finalAssistantText = ''
     let finalToolCalls: Array<{ name: string; input: unknown; result?: unknown }> = []
+    let lastStopReason: string | null = null
     
     // Agentic loop con streaming
     ;(async () => {
@@ -738,6 +800,21 @@ Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selec
         
         let currentMessages = [...anthropicMessages]
         let continueLoop = true
+        
+        // Capturar info del request para debugging
+        const requestPayloadInfo = {
+          model: 'claude-sonnet-4-20250514',
+          messages_count: currentMessages.length,
+          messages_preview: currentMessages.map(m => ({ 
+            role: m.role, 
+            content_length: typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length 
+          })),
+          tools_count: TOOLS.length,
+          system_prompt_length: SYSTEM_PROMPT.length,
+          timestamp: new Date().toISOString()
+        }
+        
+        console.error('[CHAT-PLANNING] Request payload:', JSON.stringify(requestPayloadInfo))
         
         while (continueLoop) {
           const response = await anthropic.messages.create({
@@ -811,6 +888,7 @@ Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selec
             // Message delta - capturar stop reason
             if (event.type === 'message_delta') {
               stopReason = event.delta.stop_reason
+              lastStopReason = stopReason  // Track for metadata
             }
           }
           
@@ -887,13 +965,21 @@ Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selec
           }
         }
         
-        // Save assistant message to database
+        // Save assistant message to database with debugging metadata
         if (activeConversationId && finalAssistantText) {
           await saveMessage(
             activeConversationId, 
             'assistant', 
             finalAssistantText, 
-            finalToolCalls.length > 0 ? finalToolCalls : undefined
+            finalToolCalls.length > 0 ? finalToolCalls : undefined,
+            {
+              request_payload: requestPayloadInfo,
+              response_info: {
+                stop_reason: lastStopReason,
+                tool_calls_count: finalToolCalls.length,
+                text_length: finalAssistantText.length
+              }
+            }
           )
         }
         

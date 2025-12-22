@@ -131,11 +131,23 @@ Una rotación tiene:
 - NO uses emojis ni formateo excesivo.
 - Cuando mencionen un empleado por nombre, SIEMPRE buscá primero su legajo.
 - Mencioná legajo y nombre cuando hables de alguien.
-- Si vas a hacer múltiples operaciones independientes, ejecutá las tools EN PARALELO.
 - SIEMPRE respondé con texto DESPUÉS de usar tools. Nunca termines sin una respuesta.
 - Si el usuario pregunta por "rotaciones disponibles" o "qué rotaciones hay", usá sicamar_rotaciones_listar.
 - Si pregunta por "empleados con rotación X" o "quién tiene tal rotación", usá sicamar_rotaciones_empleados.
 </comportamiento>
+
+<parallel_tool_calls>
+CRÍTICO: Cuando el usuario mencione MÚLTIPLES empleados o pida hacer MÚLTIPLES operaciones:
+- LLAMÁ TODAS las tools necesarias EN UNA SOLA RESPUESTA, no una por una.
+- Ejemplo: Si dicen "asignar a García, López y Pérez", llamá sicamar_empleados_buscar 3 veces EN PARALELO en la misma respuesta.
+- Después de buscar, llamá sicamar_rotacion_asignar para CADA empleado EN PARALELO.
+- NUNCA hagas una búsqueda, esperá respuesta, y luego otra búsqueda. Hacé TODAS juntas.
+
+Ejemplo correcto:
+Usuario: "Asignar a García, López y Pérez rotación de 3 turnos"
+Tu respuesta: [tool_use: sicamar_empleados_buscar "García"], [tool_use: sicamar_empleados_buscar "López"], [tool_use: sicamar_empleados_buscar "Pérez"]
+(Todo en una sola respuesta, no 3 respuestas separadas)
+</parallel_tool_calls>
 
 <tools_uso>
 1. sicamar_empleados_buscar: SIEMPRE primero si mencionan nombre.
@@ -310,13 +322,14 @@ const TOOL_TO_MCP: Record<string, string> = {
 const AGENT_NAME = 'Agente de Rotaciones - Web'
 
 async function getOrCreateConversation(conversationId: string | null, userEmail?: string): Promise<string> {
-  // 1. Si hay un conversation_id válido, verificar que existe y usarlo
-  if (conversationId) {
+  // 1. Si hay un conversation_id válido, verificar que existe Y PERTENECE AL USUARIO
+  if (conversationId && userEmail) {
     const { data: existing } = await supabaseServer
       .schema('sicamar')
       .from('conversations')
       .select('id')
       .eq('id', conversationId)
+      .eq('user_email', userEmail)  // ✅ Verificar que pertenece al usuario
       .single()
     
     if (existing) {
@@ -382,7 +395,28 @@ async function getOrCreateConversation(conversationId: string | null, userEmail?
   return newConv.id
 }
 
-async function saveMessage(conversationId: string, role: 'user' | 'assistant', content: string, toolCalls?: Array<{ name: string; input: unknown; result?: unknown }>) {
+interface MessageMetadata {
+  request_payload?: {
+    model: string
+    messages_count: number
+    messages_preview: Array<{ role: string; content_length: number }>
+    tools_count: number
+    system_prompt_length: number
+  }
+  response_info?: {
+    stop_reason: string | null
+    tool_calls_count: number
+    text_length: number
+  }
+}
+
+async function saveMessage(
+  conversationId: string, 
+  role: 'user' | 'assistant', 
+  content: string, 
+  toolCalls?: Array<{ name: string; input: unknown; result?: unknown }>,
+  metadata?: MessageMetadata
+) {
   const { error } = await supabaseServer
     .schema('sicamar')
     .from('messages')
@@ -391,6 +425,7 @@ async function saveMessage(conversationId: string, role: 'user' | 'assistant', c
       role,
       content,
       tool_calls: toolCalls && toolCalls.length > 0 ? toolCalls : null,
+      metadata: metadata || null,
       created_at: new Date().toISOString()
     })
   
@@ -431,11 +466,26 @@ export async function POST(request: NextRequest) {
       await saveMessage(activeConversationId, 'user', lastUserMessage.content)
     }
     
-    // Preparar mensajes
-    const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg: { role: string; content: string }) => ({
+    // Preparar mensajes - limitar contexto para evitar que Claude "olvide" las tools
+    // Con conversaciones muy largas, Claude pierde contexto de que tiene tools disponibles
+    const MAX_MESSAGES = 20  // Últimos 20 mensajes (~10 intercambios user/assistant)
+    
+    const recentMessages = messages.slice(-MAX_MESSAGES)
+    
+    // Si hay historial previo, agregar un resumen al principio
+    const historyNote = messages.length > MAX_MESSAGES 
+      ? `[Nota: Esta conversación tiene ${messages.length} mensajes. Mostrando los últimos ${MAX_MESSAGES}. Tenés herramientas para buscar empleados, ver/crear/editar rotaciones, y asignar/quitar rotaciones a empleados.]`
+      : null
+    
+    const anthropicMessages: Anthropic.MessageParam[] = recentMessages.map((msg: { role: string; content: string }, index: number) => ({
       role: msg.role as 'user' | 'assistant',
-      content: msg.content
+      // En el primer mensaje del usuario, agregar nota de historial si corresponde
+      content: (historyNote && index === 0 && msg.role === 'user') 
+        ? `${historyNote}\n\n${msg.content}`
+        : msg.content
     }))
+    
+    console.error(`[CHAT] Prepared ${anthropicMessages.length} messages (from ${messages.length} total)`)
     
     const encoder = new TextEncoder()
     const stream = new TransformStream()
@@ -449,6 +499,7 @@ export async function POST(request: NextRequest) {
     // Track final response for persistence
     let finalAssistantText = ''
     const finalToolCalls: Array<{ name: string; input: unknown; result?: unknown }> = []
+    let lastStopReason: string | null = null
     
     // Agentic loop con streaming
     ;(async () => {
@@ -460,6 +511,20 @@ export async function POST(request: NextRequest) {
         const currentMessages = [...anthropicMessages]
         let continueLoop = true
         
+        // Capturar info del request para debugging
+        const requestPayloadInfo = {
+          model: 'claude-sonnet-4-20250514',
+          messages_count: currentMessages.length,
+          messages_preview: currentMessages.map(m => ({ 
+            role: m.role, 
+            content_length: typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length 
+          })),
+          tools_count: TOOLS.length,
+          system_prompt_length: SYSTEM_PROMPT.length,
+          timestamp: new Date().toISOString()
+        }
+        
+        console.error('[CHAT] Request payload:', JSON.stringify(requestPayloadInfo))
         console.error('[CHAT] Starting with messages:', JSON.stringify(currentMessages.map(m => ({ role: m.role, contentLength: typeof m.content === 'string' ? m.content.length : 'array' }))))
         
         while (continueLoop) {
@@ -535,6 +600,7 @@ export async function POST(request: NextRequest) {
             
             if (event.type === 'message_delta') {
               stopReason = event.delta.stop_reason
+              lastStopReason = stopReason  // Track for metadata
             }
           }
           
@@ -618,13 +684,21 @@ export async function POST(request: NextRequest) {
           finalAssistantText = fallbackText
         }
         
-        // Save assistant message to database
+        // Save assistant message to database with debugging metadata
         if (activeConversationId && finalAssistantText) {
           await saveMessage(
             activeConversationId, 
             'assistant', 
             finalAssistantText, 
-            finalToolCalls.length > 0 ? finalToolCalls : undefined
+            finalToolCalls.length > 0 ? finalToolCalls : undefined,
+            {
+              request_payload: requestPayloadInfo,
+              response_info: {
+                stop_reason: lastStopReason,
+                tool_calls_count: finalToolCalls.length,
+                text_length: finalAssistantText.length
+              }
+            }
           )
         }
         
