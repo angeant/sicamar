@@ -59,7 +59,8 @@ export async function GET(
         role: msg.role,
         content: msg.content,
         created_at: msg.created_at,
-        toolCalls
+        toolCalls,
+        metadata: msg.metadata || null  // Debug info: request_payload, response_info
       }
     })
     

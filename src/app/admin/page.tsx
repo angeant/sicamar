@@ -4,11 +4,28 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 
+interface MessageMetadata {
+  request_payload?: {
+    model: string
+    messages_count: number
+    messages_preview: Array<{ role: string; content_length: number }>
+    tools_count: number
+    system_prompt_length: number
+    timestamp?: string
+  }
+  response_info?: {
+    stop_reason: string | null
+    tool_calls_count: number
+    text_length: number
+  }
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  metadata?: MessageMetadata | null
 }
 
 interface ToolCall {
@@ -98,6 +115,122 @@ function ToolCallItem({ tool }: { tool: ToolCall }) {
   )
 }
 
+// Debug payload display
+function DebugPayload({ metadata }: { metadata: MessageMetadata }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+  const req = metadata.request_payload
+  const res = metadata.response_info
+  
+  if (!req && !res) return null
+  
+  return (
+    <div className="mt-2 border border-amber-900/30 rounded overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-1.5 px-2 py-1 bg-amber-950/20 hover:bg-amber-950/30 transition-colors text-left"
+      >
+        <svg 
+          width="8" 
+          height="8" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
+          className={`text-amber-500/70 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+        <span className="text-[9px] text-amber-500/70 font-mono flex-1">DEBUG</span>
+        {req && (
+          <span className="text-[8px] text-amber-600/60">
+            {req.messages_count} msgs · {req.tools_count} tools
+          </span>
+        )}
+      </button>
+      
+      {isExpanded && (
+        <div className="px-2 py-2 space-y-2 bg-amber-950/10">
+          {/* Request Payload */}
+          {req && (
+            <div>
+              <p className="text-[8px] text-amber-600/80 uppercase tracking-wide mb-1 font-medium">
+                Request Payload
+              </p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[9px]">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Model:</span>
+                  <span className="text-amber-400/80 font-mono">{req.model}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Tools:</span>
+                  <span className="text-amber-400/80 font-mono">{req.tools_count}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Messages:</span>
+                  <span className="text-amber-400/80 font-mono">{req.messages_count}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">System Prompt:</span>
+                  <span className="text-amber-400/80 font-mono">{req.system_prompt_length} chars</span>
+                </div>
+              </div>
+              
+              {/* Messages preview */}
+              {req.messages_preview && req.messages_preview.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[8px] text-zinc-600 mb-1">Mensajes enviados:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {req.messages_preview.map((m, i) => (
+                      <span 
+                        key={i}
+                        className={`text-[8px] px-1 py-0.5 rounded font-mono ${
+                          m.role === 'user' 
+                            ? 'bg-zinc-800 text-zinc-400' 
+                            : 'bg-zinc-700 text-zinc-300'
+                        }`}
+                      >
+                        {m.role === 'user' ? 'U' : 'A'}:{m.content_length}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Response Info */}
+          {res && (
+            <div className="pt-2 border-t border-amber-900/20">
+              <p className="text-[8px] text-amber-600/80 uppercase tracking-wide mb-1 font-medium">
+                Response Info
+              </p>
+              <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[9px]">
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Stop:</span>
+                  <span className={`font-mono ${
+                    res.stop_reason === 'tool_use' ? 'text-blue-400' : 
+                    res.stop_reason === 'end_turn' ? 'text-green-400' : 'text-zinc-400'
+                  }`}>
+                    {res.stop_reason || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Tools:</span>
+                  <span className="text-amber-400/80 font-mono">{res.tool_calls_count}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-500">Text:</span>
+                  <span className="text-amber-400/80 font-mono">{res.text_length} chars</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Message bubble component
 function MessageBubble({ message }: { message: Message & { toolCalls?: ToolCall[] } }) {
   const isUser = message.role === 'user'
@@ -127,6 +260,10 @@ function MessageBubble({ message }: { message: Message & { toolCalls?: ToolCall[
                 {new Date(message.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
+          )}
+          {/* Debug payload para mensajes del assistant */}
+          {message.metadata && (
+            <DebugPayload metadata={message.metadata} />
           )}
         </div>
       )}
