@@ -563,7 +563,7 @@ async function saveMessage(
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, context, conversation_id, user_email } = await request.json()
+    const { messages, context, conversation_id, user_email, image } = await request.json()
     
     if (!process.env.ANTHROPIC_CLAUDE_KEY) {
       return new Response(JSON.stringify({ error: 'ANTHROPIC_CLAUDE_KEY not configured' }), {
@@ -763,21 +763,43 @@ Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selec
     // Así siempre tiene el contexto temporal actualizado aunque cambie la semana en pantalla
     const lastUserIdx = recentMessages.map((m: { role: string }) => m.role).lastIndexOf('user')
     const anthropicMessages: Anthropic.MessageParam[] = recentMessages.map((msg: { role: string; content: string }, idx: number) => {
-      let content = msg.content
+      let textContent = msg.content
       
       // En el primer mensaje, agregar nota de historial si corresponde
       if (historyNote && idx === 0 && msg.role === 'user') {
-        content = `${historyNote}\n\n${content}`
+        textContent = `${historyNote}\n\n${textContent}`
       }
       
       // En el último mensaje del usuario, agregar contexto temporal
       if (idx === lastUserIdx && msg.role === 'user' && userContextPrefix) {
-        content = userContextPrefix + content
+        textContent = userContextPrefix + textContent
+      }
+      
+      // Si es el último mensaje del usuario y hay imagen adjunta, crear content array
+      if (idx === lastUserIdx && msg.role === 'user' && image) {
+        const contentBlocks: Anthropic.ContentBlockParam[] = [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: image.base64
+            }
+          },
+          {
+            type: 'text',
+            text: textContent || 'Describí esta imagen'
+          }
+        ]
+        return {
+          role: msg.role as 'user' | 'assistant',
+          content: contentBlocks
+        }
       }
       
       return {
         role: msg.role as 'user' | 'assistant',
-        content
+        content: textContent
       }
     })
     

@@ -440,7 +440,7 @@ async function saveMessage(
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, conversation_id, user_email } = await request.json()
+    const { messages, conversation_id, user_email, image } = await request.json()
     
     if (!process.env.ANTHROPIC_CLAUDE_KEY) {
       return new Response(JSON.stringify({ error: 'ANTHROPIC_CLAUDE_KEY not configured' }), {
@@ -485,13 +485,42 @@ export async function POST(request: NextRequest) {
       ? `[Nota: Esta conversación tiene ${messages.length} mensajes. Mostrando los últimos ${MAX_MESSAGES}. Tenés herramientas para buscar empleados, ver/crear/editar rotaciones, y asignar/quitar rotaciones a empleados.]`
       : null
     
-    const anthropicMessages: Anthropic.MessageParam[] = recentMessages.map((msg: { role: string; content: string }, index: number) => ({
-      role: msg.role as 'user' | 'assistant',
+    const lastUserIdx = recentMessages.map((m: { role: string }) => m.role).lastIndexOf('user')
+    const anthropicMessages: Anthropic.MessageParam[] = recentMessages.map((msg: { role: string; content: string }, index: number) => {
+      let textContent = msg.content
+      
       // En el primer mensaje del usuario, agregar nota de historial si corresponde
-      content: (historyNote && index === 0 && msg.role === 'user') 
-        ? `${historyNote}\n\n${msg.content}`
-        : msg.content
-    }))
+      if (historyNote && index === 0 && msg.role === 'user') {
+        textContent = `${historyNote}\n\n${textContent}`
+      }
+      
+      // Si es el último mensaje del usuario y hay imagen adjunta, crear content array
+      if (index === lastUserIdx && msg.role === 'user' && image) {
+        const contentBlocks: Anthropic.ContentBlockParam[] = [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: image.base64
+            }
+          },
+          {
+            type: 'text',
+            text: textContent || 'Describí esta imagen'
+          }
+        ]
+        return {
+          role: msg.role as 'user' | 'assistant',
+          content: contentBlocks
+        }
+      }
+      
+      return {
+        role: msg.role as 'user' | 'assistant',
+        content: textContent
+      }
+    })
     
     console.error(`[CHAT] Prepared ${anthropicMessages.length} messages (from ${messages.length} total)`)
     

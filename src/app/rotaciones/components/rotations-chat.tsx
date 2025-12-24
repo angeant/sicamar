@@ -167,8 +167,11 @@ export default function RotationsChat({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [attachedImage, setAttachedImage] = useState<{ base64: string; type: string; preview: string } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
   
   // Cargar conversación existente del usuario al montar
   useEffect(() => {
@@ -242,7 +245,7 @@ export default function RotationsChat({
   }, [messages, currentThinking, scrollToBottom])
   
   const sendMessage = async () => {
-    if (!input.trim() || isLoading) return
+    if ((!input.trim() && !attachedImage) || isLoading) return
     
     // Construir el mensaje con contexto de empleados seleccionados
     let messageContent = input.trim()
@@ -256,17 +259,21 @@ export default function RotationsChat({
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: messageContent
+      content: messageContent || '(imagen adjunta)'
     }
     
     // Para mostrar al usuario, solo mostramos el input sin el contexto
     const displayMessage: Message = {
       ...userMessage,
-      content: input.trim()
+      content: input.trim() || '(imagen adjunta)'
     }
+    
+    // Guardar referencia a la imagen antes de limpiar
+    const imageToSend = attachedImage
     
     setMessages(prev => [...prev, displayMessage])
     setInput('')
+    setAttachedImage(null)
     setIsLoading(true)
     setCurrentThinking(null)
     setErrorMessage(null)
@@ -289,6 +296,10 @@ export default function RotationsChat({
             })),
           conversation_id: conversationId,
           user_email: userEmail,
+          image: imageToSend ? {
+            base64: imageToSend.base64,
+            media_type: imageToSend.type
+          } : undefined
         })
       })
       
@@ -419,8 +430,83 @@ export default function RotationsChat({
     }
   }
   
+  // Handle image file
+  const handleImageFile = useCallback((file: File) => {
+    if (!file.type.startsWith('image/')) return
+    
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const base64Full = e.target?.result as string
+      const base64 = base64Full.split(',')[1]
+      const mediaType = file.type
+      
+      setAttachedImage({
+        base64,
+        type: mediaType,
+        preview: base64Full
+      })
+    }
+    reader.readAsDataURL(file)
+  }, [])
+  
+  // Drag & drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }, [])
+  
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.currentTarget === e.target) {
+      setIsDragging(false)
+    }
+  }, [])
+  
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }, [])
+  
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    
+    const files = e.dataTransfer.files
+    if (files.length > 0) {
+      handleImageFile(files[0])
+    }
+  }, [handleImageFile])
+  
+  const removeAttachedImage = useCallback(() => {
+    setAttachedImage(null)
+  }, [])
+  
   return (
-    <div className="w-72 flex-shrink-0 bg-zinc-950 border-l border-zinc-800/50 flex flex-col h-screen">
+    <div 
+      ref={dropZoneRef}
+      className={`w-72 flex-shrink-0 bg-zinc-950 border-l border-zinc-800/50 flex flex-col h-screen relative ${
+        isDragging ? 'ring-2 ring-inset ring-[#C4322F]/50' : ''
+      }`}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-zinc-950/80 z-50 flex items-center justify-center pointer-events-none">
+          <div className="text-center">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#C4322F] mx-auto mb-2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+            </svg>
+            <p className="text-[11px] text-zinc-400">Soltá la imagen</p>
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-800/50">
         <div className="flex items-center justify-between">
@@ -539,6 +625,23 @@ export default function RotationsChat({
             } focus-within:border-zinc-600`}
             onClick={() => inputRef.current?.focus()}
           >
+            {/* Thumbnail de imagen adjunta */}
+            {attachedImage && (
+              <div className="relative flex-shrink-0 group">
+                <img 
+                  src={attachedImage.preview} 
+                  alt="Adjunto" 
+                  className="h-6 w-6 object-cover rounded"
+                />
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeAttachedImage() }}
+                  className="absolute -top-1 -right-1 w-3 h-3 bg-zinc-700 hover:bg-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <span className="text-[8px] text-white leading-none">×</span>
+                </button>
+              </div>
+            )}
+            
             {/* Badges de empleados seleccionados */}
             {selectedEmpleados.slice(0, 4).map((emp) => (
               <span 
@@ -572,7 +675,7 @@ export default function RotationsChat({
           </div>
           <button
             onClick={sendMessage}
-            disabled={isLoading || !input.trim()}
+            disabled={isLoading || (!input.trim() && !attachedImage)}
             className="h-7 w-7 flex-shrink-0 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:hover:bg-zinc-800 rounded flex items-center justify-center transition-colors"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-400">

@@ -244,10 +244,10 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json()
-    const { message, conversation_id } = body
+    const { message, conversation_id, image } = body
     
-    if (!message) {
-      return NextResponse.json({ success: false, error: 'Message is required' }, { status: 400 })
+    if (!message && !image) {
+      return NextResponse.json({ success: false, error: 'Message or image is required' }, { status: 400 })
     }
     
     let conversationId = conversation_id
@@ -305,10 +305,36 @@ export async function POST(request: NextRequest) {
       .order('created_at', { ascending: true })
       .limit(20)
     
-    const claudeMessages: Anthropic.MessageParam[] = (history || []).map(msg => ({
-      role: msg.role as 'user' | 'assistant',
-      content: msg.content
-    }))
+    const claudeMessages: Anthropic.MessageParam[] = (history || []).map((msg, idx, arr) => {
+      // Si es el último mensaje del usuario y hay imagen, incluirla
+      const isLastUserMessage = idx === arr.length - 1 && msg.role === 'user'
+      
+      if (isLastUserMessage && image) {
+        const contentBlocks: Anthropic.ContentBlockParam[] = [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: image.base64
+            }
+          },
+          {
+            type: 'text',
+            text: msg.content || 'Describí esta imagen'
+          }
+        ]
+        return {
+          role: msg.role as 'user' | 'assistant',
+          content: contentBlocks
+        }
+      }
+      
+      return {
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content
+      }
+    })
     
     // Llamar a Claude
     let response = await anthropic.messages.create({
