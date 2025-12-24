@@ -1,0 +1,118 @@
+# Convenciones del Proyecto Sicamar
+
+Aplicar SIEMPRE cuando se trabaje en este proyecto.
+
+## Variables de Entorno
+
+### Anthropic / Claude
+```
+ANTHROPIC_CLAUDE_KEY   # API Key de Anthropic (NO usar ANTHROPIC_API_KEY)
+CLAUDE_MODEL           # Modelo a usar (ej: claude-opus-4-5-20251101)
+```
+
+**Inicialización correcta:**
+```typescript
+import Anthropic from '@anthropic-ai/sdk'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_CLAUDE_KEY })
+
+// En llamadas a la API:
+const response = await anthropic.messages.create({
+  model: process.env.CLAUDE_MODEL!,
+  // ...
+})
+```
+
+### Supabase
+```
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+```
+
+### MCP
+```
+MCP_BASE_URL    # URL del servidor MCP
+JWT_SECRET      # Para generar tokens JWT de MCP
+```
+
+---
+
+## Sistema de Diseño
+
+Seguir estrictamente el sistema de diseño Kalia (ver `.cursor/rules/kalia-design-system.mdc`).
+
+### Estética General
+- **Minimalista y clean** - Sin elementos decorativos innecesarios
+- **Sin iconos decorativos** - Solo iconos funcionales cuando sean estrictamente necesarios
+- **Un solo color de acento**: Rojo Sicamar `#C4322F`
+- **Escala de grises** para todo lo demás (neutral-*, zinc-*)
+- **Sin colores semánticos** (verde éxito, rojo error) excepto el rojo Sicamar
+
+### Headers de Página
+```tsx
+<header className="flex-shrink-0 border-b border-neutral-100">
+  <div className="px-8 py-6 flex items-center justify-between">
+    <div>
+      <p className="text-xs font-medium text-[#C4322F] tracking-[0.3em] uppercase mb-1">
+        Sicamar
+      </p>
+      <h1 className="text-2xl font-light text-neutral-300 tracking-wide">
+        Nombre de Página
+      </h1>
+    </div>
+    {/* Controles a la derecha */}
+  </div>
+</header>
+```
+
+### Chat Panel (Oscuro)
+- Fondo: `bg-zinc-950`
+- Bordes: `border-zinc-800/50`
+- Texto: `text-zinc-*` (300 para contenido, 400-600 para labels)
+- Input: `bg-zinc-900 border-zinc-800`
+- Ancho fijo: `w-72`
+- Header: "ASISTENTE" + "Nombre del módulo"
+- Footer: "Powered by Kalia"
+
+### Tablas
+- Header: `bg-white border-b border-neutral-100`
+- Texto header: `text-[10px] font-normal text-neutral-400 uppercase tracking-wider`
+- Filas: `border-b border-neutral-50 hover:bg-neutral-50/30`
+- Padding: `px-8` para primera columna, `px-3` para el resto
+
+### Filtros/Tabs
+```tsx
+<button className={`px-3 py-1.5 text-xs rounded-md transition-all ${
+  isActive
+    ? 'bg-white text-neutral-900 shadow-sm border border-neutral-200'
+    : 'text-neutral-500 hover:text-neutral-700'
+}`}>
+```
+
+---
+
+## Base de Datos
+
+- **Schema**: Todas las tablas en `sicamar`
+- **Acceso**: Siempre usar `.schema('sicamar')` o `sicamar.tabla` en SQL
+- Ver `.cursor/rules/supabase-sicamar.mdc` para detalles
+
+---
+
+## API Routes
+
+- Ver `.cursor/rules/api-routes.mdc` para convenciones de endpoints
+- Usar `supabaseSicamar` para queries al schema sicamar
+- Usar `supabaseServer` con `.schema('sicamar')` para tablas como conversations/messages
+
+---
+
+## NO Hacer
+
+- ❌ No usar `ANTHROPIC_API_KEY` (usar `ANTHROPIC_CLAUDE_KEY`)
+- ❌ No hardcodear el modelo de Claude (usar `process.env.CLAUDE_MODEL`)
+- ❌ No usar colores semánticos (verde/rojo/amarillo para estados)
+- ❌ No agregar logos PNG en headers (usar texto "Sicamar" en rojo)
+- ❌ No usar badges coloridos (usar texto plano o escala de grises)
+- ❌ No usar iconos decorativos (solo funcionales)

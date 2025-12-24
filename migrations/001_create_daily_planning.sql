@@ -54,3 +54,5 @@ COMMENT ON COLUMN sicamar.daily_planning.origin IS 'Origen de la planificación:
 
 
 
+
+

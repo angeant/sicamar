@@ -449,6 +449,14 @@ export async function POST(request: NextRequest) {
       })
     }
     
+    const modelId = process.env.CLAUDE_MODEL
+    if (!modelId) {
+      return new Response(JSON.stringify({ error: 'CLAUDE_MODEL not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+    
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_CLAUDE_KEY })
     
     // Get or create conversation for persistence
@@ -513,7 +521,7 @@ export async function POST(request: NextRequest) {
         
         // Capturar info del request para debugging
         const requestPayloadInfo = {
-          model: 'claude-sonnet-4-20250514',
+          model: modelId,
           messages_count: currentMessages.length,
           messages_preview: currentMessages.map(m => ({ 
             role: m.role, 
@@ -530,7 +538,7 @@ export async function POST(request: NextRequest) {
         while (continueLoop) {
           console.error('[CHAT] Calling Claude with', currentMessages.length, 'messages')
           const response = await anthropic.messages.create({
-            model: 'claude-sonnet-4-20250514',
+            model: modelId,
             max_tokens: 16000,
             system: SYSTEM_PROMPT,
             messages: currentMessages,
