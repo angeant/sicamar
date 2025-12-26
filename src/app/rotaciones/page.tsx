@@ -33,6 +33,7 @@ interface EmpleadoRotacion {
   turnos: Turno[] | null
   frecuencia_semanas: number | null
   cantidad_turnos: number
+  condicion_contratacion: string | null
 }
 
 // ============ COMPONENTES AUXILIARES ============
@@ -788,7 +789,15 @@ function EmpleadosLista({
                         )}
                       </div>
                       <div className="flex flex-col min-w-0">
-                        <span className="text-sm text-neutral-700 truncate max-w-[180px]">{emp.nombre_completo}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm text-neutral-700 truncate max-w-[180px]">{emp.nombre_completo}</span>
+                          {emp.condicion_contratacion === 'eventual' && (
+                            <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="Eventual" />
+                          )}
+                          {emp.condicion_contratacion === 'a_prueba' && (
+                            <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" title="A prueba" />
+                          )}
+                        </div>
                         <span className="text-[10px] text-neutral-500 font-mono">{emp.legajo}</span>
                       </div>
                     </div>
