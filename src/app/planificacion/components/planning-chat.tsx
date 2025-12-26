@@ -28,8 +28,16 @@ interface EmpleadoSeleccionado {
   nombre: string
 }
 
+interface FeriadoInfo {
+  fecha: string
+  nombre: string
+  tipo: string
+  es_laborable: boolean
+}
+
 interface PlanningChatProps {
   fechasSemana?: string[]
+  feriados?: FeriadoInfo[]
   onJornadaUpdated?: () => void
   selection?: ChatSelection | null
   onClearSelection?: () => void
@@ -161,6 +169,7 @@ function ThinkingBlock({ thinking, isStreaming }: { thinking: string; isStreamin
 
 export default function PlanningChat({ 
   fechasSemana, 
+  feriados = [],
   onJornadaUpdated, 
   selection, 
   onClearSelection,
@@ -310,6 +319,7 @@ export default function PlanningChat({
           })),
           context: { 
             fechasSemana,
+            feriados,
             seleccion: selection ? {
               legajos: selection.empleados.map(e => e.legajo),
               nombres: selection.empleados.map(e => e.nombre),

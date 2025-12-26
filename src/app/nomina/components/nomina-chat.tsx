@@ -123,6 +123,7 @@ export default function NominaChat({
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isNewConversation, setIsNewConversation] = useState(false)
   const [attachedImage, setAttachedImage] = useState<{ base64: string; type: string; preview: string } | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -185,6 +186,7 @@ export default function NominaChat({
     setConversationId(null)
     setErrorMessage(null)
     setInput('')
+    setIsNewConversation(true)
     
     clearConversationId(userEmail)
     inputRef.current?.focus()
@@ -242,6 +244,7 @@ export default function NominaChat({
         body: JSON.stringify({
           message: messageContent || '(imagen adjunta)',
           conversation_id: conversationId,
+          new_conversation: isNewConversation,
           image: imageToSend ? {
             base64: imageToSend.base64,
             media_type: imageToSend.type
@@ -255,12 +258,14 @@ export default function NominaChat({
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: data.response || ''
+          content: data.response || '',
+          toolCalls: data.tool_calls || []
         }
         setMessages(prev => [...prev, assistantMessage])
         
         if (data.conversation_id) {
           setConversationId(data.conversation_id)
+          setIsNewConversation(false)
           if (userEmail) {
             saveConversationId(userEmail, data.conversation_id)
           }

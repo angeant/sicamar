@@ -6,6 +6,14 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { useAuth, useUser, SignInButton } from '@clerk/nextjs'
 import PlanningChat from './components/planning-chat'
 
+interface Turno {
+  nombre: string
+  entrada: string
+  salida: string
+}
+
+type CondicionContratacion = 'efectivo' | 'eventual' | 'a_prueba'
+
 interface Empleado {
   id: number
   legajo: string
@@ -14,6 +22,12 @@ interface Empleado {
   sector: string | null
   categoria: string | null
   foto_thumb_url?: string | null
+  // Datos de rotación
+  rotacion_nombre: string | null
+  turnos: Turno[] | null
+  frecuencia_semanas: number | null
+  // Condición de contratación
+  condicion_contratacion: CondicionContratacion
 }
 
 // Avatar mini para empleados
@@ -31,6 +45,84 @@ function AvatarMini({ foto_thumb_url, nombre, apellido }: { foto_thumb_url?: str
   return (
     <div className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-xs text-neutral-400 flex-shrink-0">
       {iniciales}
+    </div>
+  )
+}
+
+// Badge de condición de contratación (eventual / a prueba)
+function CondicionBadge({ condicion }: { condicion: CondicionContratacion }) {
+  if (condicion === 'efectivo') return null
+  
+  const config = {
+    eventual: { label: 'Eventual', color: 'bg-amber-100 text-amber-700' },
+    a_prueba: { label: 'A prueba', color: 'bg-blue-100 text-blue-700' },
+  }
+  
+  const { label, color } = config[condicion] || { label: condicion, color: 'bg-neutral-100 text-neutral-500' }
+  
+  return (
+    <span className={`text-[8px] px-1 py-0.5 rounded font-medium ${color}`}>
+      {label}
+    </span>
+  )
+}
+
+// Badge de rotación con tooltip
+function RotacionBadge({ rotacion_nombre, turnos, frecuencia_semanas }: { 
+  rotacion_nombre: string | null
+  turnos: Turno[] | null
+  frecuencia_semanas: number | null 
+}) {
+  const [showTooltip, setShowTooltip] = useState(false)
+  
+  if (!rotacion_nombre) return null
+  
+  // Abreviar el nombre de la rotación (ej: "3 Turnos" -> "3T", "Mañana Fijo" -> "MF")
+  const abreviatura = rotacion_nombre
+    .split(' ')
+    .map(word => word[0]?.toUpperCase() || '')
+    .join('')
+    .slice(0, 3)
+  
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        className="text-[9px] px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 transition-colors cursor-pointer"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={(e) => {
+          e.stopPropagation()
+          setShowTooltip(!showTooltip)
+        }}
+      >
+        {abreviatura}
+      </button>
+      
+      {showTooltip && (
+        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-neutral-200 rounded-lg shadow-lg p-3 min-w-[200px]">
+          <p className="text-xs font-medium text-neutral-700 mb-2">{rotacion_nombre}</p>
+          
+          {turnos && turnos.length > 0 && (
+            <div className="space-y-1">
+              {turnos.map((turno, idx) => (
+                <div key={idx} className="flex items-center justify-between text-[10px]">
+                  <span className="text-neutral-500">{turno.nombre}</span>
+                  <span className="text-neutral-400 font-mono">
+                    {turno.entrada?.slice(0, 5)} → {turno.salida?.slice(0, 5)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {frecuencia_semanas && frecuencia_semanas > 1 && (
+            <p className="text-[9px] text-neutral-400 mt-2 pt-2 border-t border-neutral-100">
+              Rota cada {frecuencia_semanas} semanas
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -54,6 +146,13 @@ interface DailyPlanning {
 interface EmpleadoConPlanificacion {
   empleado: Empleado
   planificacion: Record<string, DailyPlanning>
+}
+
+interface Feriado {
+  fecha: string
+  nombre: string
+  tipo: string
+  es_laborable: boolean
 }
 
 interface CeldaSeleccionada {
@@ -290,6 +389,7 @@ export default function PlanificacionPage() {
   
   const [empleados, setEmpleados] = useState<EmpleadoConPlanificacion[]>([])
   const [loading, setLoading] = useState(true)
+  const [feriados, setFeriados] = useState<Map<string, Feriado>>(new Map())
   const [tipoVista, setTipoVista] = useState<TipoVista>('quincena')
   const [inicioVista, setInicioVista] = useState<Date>(() => {
     // Iniciar en quincena por defecto
@@ -361,10 +461,50 @@ export default function PlanificacionPage() {
     setFechas(fechasVista)
     
     try {
-      // Cargar empleados jornalizados activos
-      const empRes = await fetch('/api/sicamar/empleados?activos=true')
+      // Cargar feriados del período
+      const feriadosRes = await fetch(`/api/sicamar/feriados?desde=${fechasVista[0]}&hasta=${fechasVista[fechasVista.length - 1]}`)
+      const feriadosData = await feriadosRes.json()
+      const feriadosMap = new Map<string, Feriado>()
+      for (const f of feriadosData.data || []) {
+        feriadosMap.set(f.fecha, f)
+      }
+      setFeriados(feriadosMap)
+      
+      // Cargar empleados con rotación asignada (solo los que tienen turno rotativo)
+      const empRes = await fetch('/api/sicamar/rotaciones')
       const empData = await empRes.json()
-      const empleadosJornal = (empData.empleados || []).filter((e: Empleado & { clase: string }) => e.clase === 'Jornal')
+      
+      // Filtrar solo empleados que tienen rotación asignada y mapear al formato esperado
+      const empleadosConRotacion: Empleado[] = (empData.data || [])
+        .filter((e: { rotacion_id: number | null }) => e.rotacion_id !== null)
+        .map((e: { 
+          empleado_id: number
+          legajo: string
+          nombre_completo: string
+          sector: string | null
+          categoria: string | null
+          foto_thumb_url: string | null
+          rotacion_nombre: string | null
+          turnos: Turno[] | null
+          frecuencia_semanas: number | null
+          condicion_contratacion: CondicionContratacion
+        }) => {
+          // nombre_completo viene como "Apellido, Nombre" - separar
+          const [apellido, nombre] = (e.nombre_completo || '').split(', ')
+          return {
+            id: e.empleado_id,
+            legajo: e.legajo,
+            nombre: nombre || '',
+            apellido: apellido || '',
+            sector: e.sector,
+            categoria: e.categoria,
+            foto_thumb_url: e.foto_thumb_url,
+            rotacion_nombre: e.rotacion_nombre,
+            turnos: e.turnos,
+            frecuencia_semanas: e.frecuencia_semanas,
+            condicion_contratacion: e.condicion_contratacion || 'efectivo',
+          }
+        })
       
       // Cargar planificaciones del período
       const planRes = await fetch(`/api/sicamar/planning?desde=${fechasVista[0]}&hasta=${fechasVista[fechasVista.length - 1]}`)
@@ -380,7 +520,7 @@ export default function PlanificacionPage() {
       }
       
       // Combinar empleados con sus planificaciones
-      const result: EmpleadoConPlanificacion[] = empleadosJornal.map((emp: Empleado) => {
+      const result: EmpleadoConPlanificacion[] = empleadosConRotacion.map((emp: Empleado) => {
         const planningEmp = planningMap.get(emp.id) || new Map()
         
         const planificacion: Record<string, DailyPlanning> = {}
@@ -1125,19 +1265,37 @@ export default function PlanificacionPage() {
                   const diaCorto = DIAS_CORTOS[diaSemana === 0 ? 6 : diaSemana - 1]
                   const mes = d.toLocaleDateString('es-AR', { month: 'short' }).replace('.', '')
                   const hoy = esHoy(fecha)
+                  const feriado = feriados.get(fecha)
                   
                   return (
                     <th 
                       key={fecha}
-                      className={`text-center pb-4 pt-1 px-1.5 min-w-[52px] ${hoy ? 'bg-[#C4322F]/[0.03]' : ''}`}
+                      className={`text-center pb-4 pt-1 px-1.5 min-w-[52px] ${
+                        hoy ? 'bg-[#C4322F]/[0.03]' : 
+                        feriado ? 'bg-neutral-100/70' : ''
+                      }`}
+                      title={feriado ? feriado.nombre : undefined}
                     >
-                      <p className={`text-[10px] uppercase tracking-wider ${hoy ? 'text-[#C4322F]' : 'text-neutral-400'}`}>
+                      <p className={`text-[10px] uppercase tracking-wider ${
+                        hoy ? 'text-[#C4322F]' : 
+                        feriado ? 'text-neutral-500' : 'text-neutral-400'
+                      }`}>
                         {diaCorto}
                       </p>
-                      <p className={`text-sm font-light mt-0.5 ${hoy ? 'text-[#C4322F] font-medium' : 'text-neutral-500'}`}>
+                      <p className={`text-sm font-light mt-0.5 ${
+                        hoy ? 'text-[#C4322F] font-medium' : 
+                        feriado ? 'text-neutral-600' : 'text-neutral-500'
+                      }`}>
                         {dia}
                       </p>
-                      {(tipoVista !== 'semana' || dia === 1 || fechas.indexOf(fecha) === 0) && (
+                      {feriado ? (
+                        <span 
+                          className="inline-block bg-neutral-800 text-white text-[8px] px-1.5 py-0.5 rounded mt-0.5 cursor-help"
+                          title={feriado.nombre}
+                        >
+                          fer
+                        </span>
+                      ) : (tipoVista !== 'semana' || dia === 1 || fechas.indexOf(fecha) === 0) && (
                         <p className={`text-[9px] ${hoy ? 'text-[#C4322F]/60' : 'text-neutral-300'}`}>
                           {mes}
                         </p>
@@ -1202,7 +1360,15 @@ export default function PlanificacionPage() {
                           <span className={`text-sm truncate max-w-[140px] ${isEmpleadoSelected ? 'text-[#C4322F]' : 'text-neutral-700'}`}>
                             {empleado.apellido}, {empleado.nombre}
                           </span>
-                          <span className="text-[10px] text-neutral-500 font-mono">{empleado.legajo}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-neutral-500 font-mono">{empleado.legajo}</span>
+                            <RotacionBadge 
+                              rotacion_nombre={empleado.rotacion_nombre}
+                              turnos={empleado.turnos}
+                              frecuencia_semanas={empleado.frecuencia_semanas}
+                            />
+                            <CondicionBadge condicion={empleado.condicion_contratacion} />
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -1212,6 +1378,7 @@ export default function PlanificacionPage() {
                       const isAnimated = celdasAnimadas.has(`${empleado.id}_${fecha}`)
                       const isDragSelected = getSelectedCells().has(`${empleado.id}_${fecha}`)
                       const isChatSelected = chatSelection?.empleados.some(e => e.id === empleado.id) && chatSelection?.fechas.includes(fecha)
+                      const esFeriado = feriados.has(fecha)
                       
                       // Extraer horas de los datetimes
                       const horaEntrada = p?.normal_entry_at ? extractTimeFromDatetime(p.normal_entry_at) : null
@@ -1231,7 +1398,7 @@ export default function PlanificacionPage() {
                           onMouseUp={handleCellMouseUp}
                           className={`
                             text-center py-2 px-1 cursor-pointer transition-all select-none
-                            ${esHoy(fecha) ? 'bg-[#C4322F]/[0.03]' : ''} 
+                            ${esHoy(fecha) ? 'bg-[#C4322F]/[0.03]' : esFeriado ? 'bg-neutral-100/70' : ''} 
                             ${isPopoverSelected ? 'ring-2 ring-[#C4322F] ring-inset' : ''}
                             ${isDragSelected ? 'bg-[#C4322F]/10 ring-1 ring-[#C4322F]/30 ring-inset' : ''}
                             ${isChatSelected && !isDragSelected && !isPopoverSelected ? 'bg-[#C4322F]/10 ring-1 ring-[#C4322F]/40 ring-inset' : ''}
@@ -1297,6 +1464,11 @@ export default function PlanificacionPage() {
             <span><span className="text-neutral-600">06·14</span> mañana</span>
             <span><span className="text-neutral-600">14·22</span> tarde</span>
             <span><span className="text-[#C4322F]">←</span><span className="text-neutral-500">22·06</span> noche (entrada día anterior)</span>
+            <span className="text-neutral-200">|</span>
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-3 rounded bg-neutral-100" />
+              feriado
+            </span>
             <span className="text-neutral-200">|</span>
             <span><span className="text-neutral-500">⌘+click</span> agregar celdas al chat</span>
             <span className="text-neutral-200">|</span>
@@ -1575,6 +1747,7 @@ export default function PlanificacionPage() {
       {/* Chat de planificación - siempre visible a la derecha */}
       <PlanningChat 
         fechasSemana={fechas} 
+        feriados={Array.from(feriados.values())}
         onJornadaUpdated={cargarDatosConAnimacion}
         selection={chatSelection}
         onClearSelection={clearChatSelection}

@@ -15,7 +15,15 @@ REGLAS:
 - Ejecutá las acciones directamente, sin pedir confirmación
 - Respondé en texto plano, sin markdown (sin tablas, sin negritas, sin bullets)
 - Sé breve y directo
-- Usá las herramientas para consultar y modificar datos`
+- Usá las herramientas para consultar y modificar datos
+
+ALTAS:
+- sicamar_empleados_alta: Para empleados fijos. Requiere legajo, nombre, apellido, dni, tarjeta.
+- sicamar_empleados_alta_eventual: Para eventuales/contratistas. El DNI se usa como legajo. Requiere nombre, apellido, dni, tarjeta.
+- Ambas tools crean el empleado en la base Y envían comando a InWeb para que pueda fichar.
+
+BAJAS:
+- sicamar_empleados_dar_baja: Marca inactivo Y bloquea en InWeb automáticamente.`
 
 // Tools MCP para Nómina
 const tools: Anthropic.Tool[] = [
@@ -112,7 +120,92 @@ const tools: Anthropic.Tool[] = [
       },
       required: ['empleado_id', 'condicion']
     }
-  }
+  },
+  {
+    name: 'sicamar_empleados_alta',
+    description: 'Da de alta un empleado nuevo (fijo). Crea el registro en la base de datos Y en InWeb para que pueda fichar.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        legajo: {
+          type: 'string',
+          description: 'Legajo del empleado (ej: "000123")'
+        },
+        nombre: {
+          type: 'string',
+          description: 'Nombre del empleado'
+        },
+        apellido: {
+          type: 'string',
+          description: 'Apellido del empleado'
+        },
+        dni: {
+          type: 'string',
+          description: 'DNI del empleado'
+        },
+        tarjeta: {
+          type: 'string',
+          description: 'Número de tarjeta RFID (impreso en la tarjeta física)'
+        },
+        sector: {
+          type: 'string',
+          description: 'Sector (ej: FUND, MTO P1, ADM VT)'
+        },
+        cargo: {
+          type: 'string',
+          description: 'Cargo (ej: OPERARIO, SUPERVISOR)'
+        },
+        condicion: {
+          type: 'string',
+          enum: ['efectivo', 'eventual', 'a_prueba'],
+          description: 'Condición de contratación (default: efectivo)'
+        },
+        fecha_ingreso: {
+          type: 'string',
+          description: 'Fecha de ingreso YYYY-MM-DD (default: hoy)'
+        }
+      },
+      required: ['legajo', 'nombre', 'apellido', 'dni', 'tarjeta']
+    }
+  },
+  {
+    name: 'sicamar_empleados_alta_eventual',
+    description: 'Da de alta un empleado eventual/contratista. El DNI se usa como legajo automáticamente.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        nombre: {
+          type: 'string',
+          description: 'Nombre del empleado'
+        },
+        apellido: {
+          type: 'string',
+          description: 'Apellido del empleado'
+        },
+        dni: {
+          type: 'string',
+          description: 'DNI del empleado (se usa también como legajo)'
+        },
+        tarjeta: {
+          type: 'string',
+          description: 'Número de tarjeta RFID (impreso en la tarjeta física)'
+        },
+        sector: {
+          type: 'string',
+          description: 'Sector (opcional)'
+        },
+        cargo: {
+          type: 'string',
+          description: 'Cargo (opcional)'
+        },
+        fecha_ingreso: {
+          type: 'string',
+          description: 'Fecha de ingreso YYYY-MM-DD (default: hoy)'
+        }
+      },
+      required: ['nombre', 'apellido', 'dni', 'tarjeta']
+    }
+  },
 ]
 
 // Ejecutar herramienta
@@ -192,6 +285,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         const empleadoId = input.empleado_id as number
         const fechaEgreso = (input.fecha_egreso as string) || new Date().toISOString().split('T')[0]
         
+        // 1. Marcar inactivo en Supabase
         const { data, error } = await supabaseSicamar
           .from('empleados')
           .update({ 
@@ -204,7 +298,17 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         
         if (error) return `Error: ${error.message}`
         
-        return `Baja realizada: ${data.apellido}, ${data.nombre} (Legajo ${data.legajo}) - Fecha egreso: ${data.fecha_egreso}`
+        // 2. Bloquear en InWeb para que no pueda fichar
+        await supabaseSicamar
+          .from('comandos_inweb')
+          .insert({
+            tipo: 'BLOQUEAR',
+            legajo: data.legajo,
+            datos: {},
+            estado: 'pendiente'
+          })
+        
+        return `Baja realizada: ${data.apellido}, ${data.nombre} (Legajo ${data.legajo}) - Fecha egreso: ${data.fecha_egreso}. Bloqueado en InWeb.`
       }
       
       case 'sicamar_empleados_cambiar_condicion': {
@@ -221,6 +325,103 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
         if (error) return `Error: ${error.message}`
         
         return `Condición actualizada: ${data.apellido}, ${data.nombre} (Legajo ${data.legajo}) → ${data.condicion_contratacion}`
+      }
+      
+      case 'sicamar_empleados_alta': {
+        const legajo = input.legajo as string
+        const nombre = input.nombre as string
+        const apellido = input.apellido as string
+        const dni = input.dni as string
+        const tarjeta = input.tarjeta as string
+        const sector = (input.sector as string) || null
+        const cargo = (input.cargo as string) || null
+        const condicion = (input.condicion as string) || 'efectivo'
+        const fechaIngreso = (input.fecha_ingreso as string) || new Date().toISOString().split('T')[0]
+        
+        // 1. Crear en Supabase
+        const { data: empleado, error: empError } = await supabaseSicamar
+          .from('empleados')
+          .insert({
+            legajo,
+            nombre,
+            apellido,
+            dni,
+            sector,
+            cargo,
+            condicion_contratacion: condicion,
+            fecha_ingreso: fechaIngreso,
+            activo: true
+          })
+          .select('id, legajo, nombre, apellido')
+          .single()
+        
+        if (empError) return `Error creando empleado: ${empError.message}`
+        
+        // 2. Crear comando InWeb para que pueda fichar
+        const { data: cmd, error: cmdError } = await supabaseSicamar
+          .from('comandos_inweb')
+          .insert({
+            tipo: 'CREAR',
+            legajo,
+            datos: { nombre, apellido, dni, tarjeta, eventual: condicion === 'eventual' },
+            estado: 'pendiente'
+          })
+          .select('id')
+          .single()
+        
+        if (cmdError) {
+          return `Empleado creado en DB pero error en InWeb: ${cmdError.message}. ID: ${empleado.id}`
+        }
+        
+        return `Alta realizada: ${empleado.apellido}, ${empleado.nombre} (Legajo ${empleado.legajo}). Comando InWeb ID: ${cmd.id} - se procesará en ~60 seg.`
+      }
+      
+      case 'sicamar_empleados_alta_eventual': {
+        const nombre = input.nombre as string
+        const apellido = input.apellido as string
+        const dni = input.dni as string
+        const tarjeta = input.tarjeta as string
+        const legajo = dni // DNI como legajo para eventuales
+        const sector = (input.sector as string) || null
+        const cargo = (input.cargo as string) || null
+        const fechaIngreso = (input.fecha_ingreso as string) || new Date().toISOString().split('T')[0]
+        
+        // 1. Crear en Supabase
+        const { data: empleado, error: empError } = await supabaseSicamar
+          .from('empleados')
+          .insert({
+            legajo,
+            nombre,
+            apellido,
+            dni,
+            sector,
+            cargo,
+            condicion_contratacion: 'eventual',
+            fecha_ingreso: fechaIngreso,
+            activo: true
+          })
+          .select('id, legajo, nombre, apellido')
+          .single()
+        
+        if (empError) return `Error creando eventual: ${empError.message}`
+        
+        // 2. Crear comando InWeb
+        const { data: cmd, error: cmdError } = await supabaseSicamar
+          .from('comandos_inweb')
+          .insert({
+            tipo: 'CREAR',
+            legajo,
+            datos: { nombre, apellido, dni, tarjeta, eventual: true },
+            estado: 'pendiente'
+          })
+          .select('id')
+          .single()
+        
+        if (cmdError) {
+          return `Eventual creado en DB pero error en InWeb: ${cmdError.message}. ID: ${empleado.id}`
+        }
+        
+        return `Eventual dado de alta: ${empleado.apellido}, ${empleado.nombre} (DNI/Legajo ${empleado.legajo}). Comando InWeb ID: ${cmd.id} - se procesará en ~60 seg.`
       }
       
       default:
@@ -244,7 +445,7 @@ export async function POST(request: NextRequest) {
     }
     
     const body = await request.json()
-    const { message, conversation_id, image } = body
+    const { message, conversation_id, image, new_conversation } = body
     
     if (!message && !image) {
       return NextResponse.json({ success: false, error: 'Message or image is required' }, { status: 400 })
@@ -253,20 +454,9 @@ export async function POST(request: NextRequest) {
     let conversationId = conversation_id
     
     // Obtener o crear conversación
-    if (!conversationId) {
-      const { data: existingConv } = await supabaseServer
-        .schema('sicamar')
-        .from('conversations')
-        .select('id')
-        .eq('user_email', userEmail)
-        .eq('agent_name', AGENT_NAME)
-        .order('last_message_at', { ascending: false })
-        .limit(1)
-        .single()
-      
-      if (existingConv) {
-        conversationId = existingConv.id
-      } else {
+    if (!conversationId || new_conversation) {
+      // Si new_conversation=true, siempre crear nueva
+      if (new_conversation) {
         const { data: newConv, error: convError } = await supabaseServer
           .schema('sicamar')
           .from('conversations')
@@ -283,6 +473,38 @@ export async function POST(request: NextRequest) {
         }
         
         conversationId = newConv.id
+      } else {
+        // Buscar existente o crear nueva
+        const { data: existingConv } = await supabaseServer
+          .schema('sicamar')
+          .from('conversations')
+          .select('id')
+          .eq('user_email', userEmail)
+          .eq('agent_name', AGENT_NAME)
+          .order('last_message_at', { ascending: false })
+          .limit(1)
+          .single()
+        
+        if (existingConv) {
+          conversationId = existingConv.id
+        } else {
+          const { data: newConv, error: convError } = await supabaseServer
+            .schema('sicamar')
+            .from('conversations')
+            .insert({
+              user_email: userEmail,
+              agent_name: AGENT_NAME,
+              session_id: crypto.randomUUID()
+            })
+            .select()
+            .single()
+          
+          if (convError) {
+            return NextResponse.json({ success: false, error: 'Error creating conversation' }, { status: 500 })
+          }
+          
+          conversationId = newConv.id
+        }
       }
     }
     
@@ -345,6 +567,9 @@ export async function POST(request: NextRequest) {
       messages: claudeMessages
     })
     
+    // Acumular tool calls para mostrar en UI
+    const allToolCalls: Array<{ name: string; input: unknown; result: string }> = []
+    
     // Procesar tool_use
     while (response.stop_reason === 'tool_use') {
       const toolUseBlocks = response.content.filter(
@@ -359,6 +584,13 @@ export async function POST(request: NextRequest) {
           type: 'tool_result',
           tool_use_id: toolUse.id,
           content: result
+        })
+        
+        // Guardar para mostrar en UI
+        allToolCalls.push({
+          name: toolUse.name,
+          input: toolUse.input,
+          result: result
         })
       }
       
@@ -380,14 +612,15 @@ export async function POST(request: NextRequest) {
     
     const assistantResponse = textContent?.text || 'No pude procesar tu mensaje.'
     
-    // Guardar respuesta
+    // Guardar respuesta con tool_calls
     await supabaseServer
       .schema('sicamar')
       .from('messages')
       .insert({
         conversation_id: conversationId,
         role: 'assistant',
-        content: assistantResponse
+        content: assistantResponse,
+        tool_calls: allToolCalls.length > 0 ? allToolCalls : null
       })
     
     await supabaseServer
@@ -399,7 +632,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       response: assistantResponse,
-      conversation_id: conversationId
+      conversation_id: conversationId,
+      tool_calls: allToolCalls
     })
     
   } catch (error) {

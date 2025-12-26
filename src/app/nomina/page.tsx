@@ -328,7 +328,13 @@ export default function NominaPage() {
                   {stats.total} activos
                 </p>
                 <p className="text-xs text-neutral-400">
-                  {stats.efectivos} efectivos · {stats.eventuales} eventuales · {stats.aPrueba} a prueba
+                  {stats.efectivos} efectivos
+                  {stats.eventuales > 0 && (
+                    <span className="text-red-500 font-medium"> · {stats.eventuales} eventuales</span>
+                  )}
+                  {stats.aPrueba > 0 && (
+                    <span className="text-amber-500 font-medium"> · {stats.aPrueba} a prueba</span>
+                  )}
                 </p>
               </div>
               
@@ -465,9 +471,17 @@ export default function NominaPage() {
                                 apellido={emp.apellido} 
                               />
                               <div className="flex flex-col">
-                                <span className={`font-medium text-sm ${emp.activo ? 'text-neutral-900' : 'text-neutral-400'}`}>
-                                  {emp.apellido || 'Sin apellido'}, {emp.nombre || 'Sin nombre'}
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`font-medium text-sm ${emp.activo ? 'text-neutral-900' : 'text-neutral-400'}`}>
+                                    {emp.apellido || 'Sin apellido'}, {emp.nombre || 'Sin nombre'}
+                                  </span>
+                                  {emp.condicion_contratacion === 'eventual' && (
+                                    <span className="w-2 h-2 rounded-full bg-red-500" title="Eventual" />
+                                  )}
+                                  {emp.condicion_contratacion === 'a_prueba' && (
+                                    <span className="w-2 h-2 rounded-full bg-amber-500" title="A prueba" />
+                                  )}
+                                </div>
                                 <span className="text-[11px] text-neutral-400">{emp.dni}</span>
                               </div>
                             </div>

@@ -21,6 +21,7 @@ export async function GET() {
         activo: emp.activo,
         foto_url: emp.foto_url,
         foto_thumb_url: emp.foto_thumb_url,
+        condicion_contratacion: emp.condicion_contratacion || 'efectivo',
         rotacion_id: emp.rotacion_id,
         rotacion_nombre: emp.rotacion_nombre,
         turnos: emp.turnos,
@@ -35,7 +36,7 @@ export async function GET() {
     // Fallback: query manual
     const { data: empleados, error: empError } = await supabaseSicamar
       .from('empleados')
-      .select('id, legajo, nombre, apellido, dni, categoria, sector, cargo, activo, foto_url, foto_thumb_url')
+      .select('id, legajo, nombre, apellido, dni, categoria, sector, cargo, activo, foto_url, foto_thumb_url, condicion_contratacion')
       .eq('activo', true)
       .order('apellido')
       .order('nombre')
@@ -91,6 +92,7 @@ export async function GET() {
         activo: emp.activo,
         foto_url: emp.foto_url,
         foto_thumb_url: emp.foto_thumb_url,
+        condicion_contratacion: emp.condicion_contratacion || 'efectivo',
         rotacion_id: rot?.id || null,
         rotacion_nombre: rot?.nombre || null,
         turnos: rot?.turnos || null,

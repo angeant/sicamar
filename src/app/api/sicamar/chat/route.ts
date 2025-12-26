@@ -21,7 +21,8 @@ async function generateMcpToken(): Promise<string> {
       'sicamar.planning.consultar',
       'sicamar.planning.bulk',
       'sicamar.planning.limpiar',
-      'sicamar.empleados.buscar'
+      'sicamar.empleados.buscar',
+      'sicamar.rotaciones.empleados'
     ],
   })
     .setProtectedHeader({ alg: 'HS256' })
@@ -277,7 +278,26 @@ Tu respuesta: [tool_use: sicamar_empleados_buscar "García"], [tool_use: sicamar
    - Rango de fechas: fecha_desde + fecha_hasta
    - Mismo status/turno para todos
 5. sicamar_planning_limpiar: SOLO para eliminar/vaciar planificaciones. NO uses para modificar.
+6. sicamar_rotaciones_consultar: Consultar la rotación asignada a un empleado.
+   - Devuelve: tipo de rotación, turnos con horarios, frecuencia, y NOTAS con excepciones.
+   - Usá esta tool ANTES de planificar si necesitás saber qué turno le corresponde.
+   - Las NOTAS incluyen reglas especiales (ej: "sábados libres", "solo mañana/tarde", etc.)
 </tools_uso>
+
+<rotaciones_y_sabados>
+⚠️ REGLA CRÍTICA PARA SÁBADOS:
+Antes de cargar un sábado, SIEMPRE consultá la rotación del empleado con sicamar_rotaciones_consultar
+y leé las NOTAS para saber:
+1. Si trabaja el sábado o es FRANCO según su rotación actual
+2. Qué horario específico tiene ese sábado
+
+REGLAS GENERALES (pueden variar según rotación):
+- TURNO MAÑANA: Sábado ES día laboral (06:00-13:00). Después de 13:00 = extra 100%.
+- TURNO TARDE: Sábado es FRANCO. Si trabajan, todo es extra 100%.
+- TURNO NOCHE: Sábado es FRANCO. La semana termina el sábado 06:00 AM (salida del viernes noche).
+
+SIEMPRE verificá con sicamar_rotaciones_consultar antes de asumir.
+</rotaciones_y_sabados>
 
 <horas_extra_importante>
 PARA AGREGAR HORAS EXTRA a un turno existente, usá sicamar_planning_editar con:
@@ -423,6 +443,21 @@ const TOOLS: Anthropic.Tool[] = [
       },
       required: ['legajos', 'fecha_desde']
     }
+  },
+  {
+    name: 'sicamar_rotaciones_consultar',
+    description: 'Consulta la rotación asignada a un empleado. Devuelve: tipo de rotación, turnos con horarios (entrada/salida), frecuencia de rotación, y NOTAS con reglas especiales y excepciones. Usá esta tool para saber qué turno le corresponde a alguien y si tiene reglas especiales para sábados u otros días.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        legajo: { type: 'string', description: 'Legajo del empleado a consultar' },
+        sector: { type: 'string', description: 'Filtrar por sector (opcional)' },
+        rotacion_id: { type: 'number', description: 'Filtrar por ID de rotación específica (opcional)' },
+        sin_rotacion: { type: 'boolean', description: 'true = solo empleados SIN rotación asignada (opcional)' },
+        limit: { type: 'number', description: 'Máximo de resultados (default 50)' }
+      },
+      required: []
+    }
   }
 ]
 
@@ -432,7 +467,8 @@ const TOOL_TO_MCP: Record<string, string> = {
   'sicamar_planning_consultar': 'sicamar.planning.consultar',
   'sicamar_planning_editar': 'sicamar.planning.editar',
   'sicamar_planning_bulk': 'sicamar.planning.bulk',
-  'sicamar_planning_limpiar': 'sicamar.planning.limpiar'
+  'sicamar_planning_limpiar': 'sicamar.planning.limpiar',
+  'sicamar_rotaciones_consultar': 'sicamar.rotaciones.empleados'
 }
 
 // ============================================================================
@@ -744,6 +780,27 @@ FECHAS: [${fechasStr}]
 INSTRUCCIÓN: Usá estos legajos y fechas directamente en las tools. 
 Si dice "turno tarde" o "vacaciones" sin más contexto, aplicalo a TODA la selección usando sicamar_planning_bulk.
 </seleccion_usuario>
+
+`
+    }
+    
+    // Agregar contexto de feriados si existe
+    if (context?.feriados && context.feriados.length > 0) {
+      const feriadosTexto = context.feriados.map((f: { fecha: string; nombre: string; es_laborable: boolean }) => {
+        const d = new Date(f.fecha + 'T12:00:00')
+        const dia = DIAS_SEMANA[d.getDay()]
+        return `  ${f.fecha} (${dia}) = ${f.nombre}${f.es_laborable ? ' [LABORABLE]' : ''}`
+      }).join('\n')
+      
+      userContextPrefix += `<feriados>
+FERIADOS EN EL PERÍODO VISIBLE:
+${feriadosTexto}
+
+⚠️ IMPORTANTE:
+- En feriados, si el empleado trabaja, las horas son EXTRA 100% (como domingos).
+- Antes de asignar trabajo en un feriado, confirmá con el usuario si es intencional.
+- Los feriados [LABORABLE] son días que la empresa decidió trabajar normalmente.
+</feriados>
 
 `
     }
