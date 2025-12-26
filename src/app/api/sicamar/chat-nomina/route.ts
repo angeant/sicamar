@@ -531,14 +531,19 @@ export async function POST(request: NextRequest) {
         content: message
       })
     
-    // Cargar historial
+    // Cargar historial - SOLO últimos 6 mensajes para evitar contaminación de contexto
     const { data: history } = await supabaseServer
       .schema('sicamar')
       .from('messages')
       .select('role, content')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true })
-      .limit(20)
+      .limit(6)
+    
+    // DEBUG: Log del historial y mensaje actual
+    console.log('[chat-nomina] ====== NUEVA REQUEST ======')
+    console.log('[chat-nomina] Mensaje actual:', message)
+    console.log('[chat-nomina] Historial cargado:', JSON.stringify(history?.map(h => ({ role: h.role, content: h.content?.substring(0, 100) })), null, 2))
     
     const claudeMessages: Anthropic.MessageParam[] = (history || []).map((msg, idx, arr) => {
       // Si es el último mensaje del usuario y hay imagen, incluirla
@@ -589,9 +594,34 @@ export async function POST(request: NextRequest) {
         (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
       )
       
+      // DEBUG: Log de tools que Claude quiere ejecutar
+      console.log('[chat-nomina] Tools solicitadas:', toolUseBlocks.map(t => ({ name: t.name, input: t.input })))
+      
+      // SAFEGUARD: Si el mensaje pide BAJA, bloquear ALTAS
+      const mensajeLower = message.toLowerCase()
+      const pideBaja = mensajeLower.includes('baja') || mensajeLower.includes('bajar') || 
+                       mensajeLower.includes('desactiv') || mensajeLower.includes('bloque')
+      
       const toolResults: Anthropic.ToolResultBlockParam[] = []
       
       for (const toolUse of toolUseBlocks) {
+        // Bloquear altas si el usuario pidió bajas
+        if (pideBaja && (toolUse.name === 'sicamar_empleados_alta' || toolUse.name === 'sicamar_empleados_alta_eventual')) {
+          console.log(`[chat-nomina] ⚠️ BLOQUEADO: ${toolUse.name} - el usuario pidió BAJA, no alta`)
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: 'ERROR: El usuario pidió DAR DE BAJA, no dar de alta. Usá sicamar_empleados_dar_baja en su lugar.'
+          })
+          allToolCalls.push({
+            name: toolUse.name,
+            input: toolUse.input,
+            result: 'BLOQUEADO: Usuario pidió baja, no alta'
+          })
+          continue
+        }
+        
+        console.log(`[chat-nomina] Ejecutando: ${toolUse.name}`, toolUse.input)
         const result = await executeTool(toolUse.name, toolUse.input as Record<string, unknown>)
         toolResults.push({
           type: 'tool_result',
