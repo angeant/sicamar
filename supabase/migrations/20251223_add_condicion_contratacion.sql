@@ -24,3 +24,4 @@ WHERE condicion_contratacion IS NULL;
 -- 'a_prueba' - Empleado en período de prueba previo a ser contratado
 
 
+

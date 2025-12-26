@@ -25,6 +25,8 @@ export async function GET(request: NextRequest) {
     const userId = searchParams.get('userId')
     const email = searchParams.get('email')
     
+    console.log('[check-sicamar] Checking access for:', { userId, email })
+    
     if (!userId) {
       return NextResponse.json({ isMember: false, error: 'userId required' }, { status: 400 })
     }

@@ -225,3 +225,4 @@ docker exec sqlserver_bejerman /opt/mssql-tools18/bin/sqlcmd \
   -Q "SELECT TOP 10 e.empLegajo, p.perApellido FROM tbEmpleados e JOIN tbPersonas p ON e.perCodigo = p.perCodigo WHERE e.orgCodigo = 2"
 ```
 
+

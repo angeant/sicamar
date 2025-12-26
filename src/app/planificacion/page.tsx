@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { WebViewWarning } from '@/components/webview-detector'
 import { useAuth, useUser, SignInButton } from '@clerk/nextjs'
 import PlanningChat from './components/planning-chat'
 
@@ -1149,16 +1150,20 @@ export default function PlanificacionPage() {
   if (!isSicamarMember) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center px-4">
+        <div className="text-center px-4 max-w-sm">
           <p className="text-sm font-medium text-[#C4322F] tracking-[0.3em] uppercase mb-4">
             Sicamar
           </p>
           <h1 className="text-2xl font-light text-neutral-300 mb-4">
             Acceso Restringido
           </h1>
-          <p className="text-sm text-neutral-400 mb-8">
+          <p className="text-sm text-neutral-400 mb-6">
             No tenés permisos para acceder a esta página.
           </p>
+          
+          {/* Aviso de WebView */}
+          <WebViewWarning className="mb-6 text-left" />
+          
           <Link href="/" className="text-sm text-neutral-400 hover:text-[#C4322F]">
             ← Volver al inicio
           </Link>
