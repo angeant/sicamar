@@ -232,21 +232,38 @@ function DebugPayload({ metadata }: { metadata: MessageMetadata }) {
   )
 }
 
-// Message bubble component
-function MessageBubble({ message }: { message: Message & { toolCalls?: ToolCall[] } }) {
+// Message bubble component - clickeable para ver debug
+function MessageBubble({ 
+  message, 
+  isSelected,
+  onSelect 
+}: { 
+  message: Message & { toolCalls?: ToolCall[] }
+  isSelected: boolean
+  onSelect: () => void 
+}) {
   const isUser = message.role === 'user'
   
   return (
-    <div className={`${isUser ? 'ml-8' : 'mr-8'}`}>
+    <button 
+      onClick={onSelect}
+      className={`w-full text-left ${isUser ? 'ml-8' : 'mr-8'} transition-all ${
+        isSelected ? 'ring-1 ring-amber-500/50 rounded' : ''
+      }`}
+    >
       {isUser ? (
-        <div className="bg-zinc-800 rounded px-3 py-2">
+        <div className={`bg-zinc-800 rounded px-3 py-2 hover:bg-zinc-750 transition-colors ${
+          isSelected ? 'bg-zinc-700' : ''
+        }`}>
           <p className="text-[11px] text-zinc-200 whitespace-pre-wrap">{message.content}</p>
           <p className="text-[9px] text-zinc-500 mt-1">
             {new Date(message.created_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
           </p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className={`space-y-2 p-2 rounded hover:bg-zinc-900/50 transition-colors ${
+          isSelected ? 'bg-zinc-900/80' : ''
+        }`}>
           {message.toolCalls && message.toolCalls.length > 0 && (
             <div className="bg-zinc-900/50 border border-zinc-800/50 rounded overflow-hidden">
               {message.toolCalls.map((tool, i) => (
@@ -262,20 +279,20 @@ function MessageBubble({ message }: { message: Message & { toolCalls?: ToolCall[
               </p>
             </div>
           )}
-          {/* Debug payload para mensajes del assistant */}
-          {message.metadata && (
-            <DebugPayload metadata={message.metadata} />
-          )}
         </div>
       )}
-    </div>
+    </button>
   )
 }
 
-// Expanded conversation view
+// Expanded conversation view with debug panel
 function ConversationDetail({ conversation, onClose }: { conversation: Conversation; onClose: () => void }) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<(Message & { toolCalls?: ToolCall[] })[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null)
+  const [showDebug, setShowDebug] = useState(false)
+  
+  const selectedMessage = messages.find(m => m.id === selectedMessageId)
   
   useEffect(() => {
     async function loadMessages() {
@@ -296,7 +313,9 @@ function ConversationDetail({ conversation, onClose }: { conversation: Conversat
   
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-zinc-950 border border-zinc-800 rounded-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
+      <div className={`bg-zinc-950 border border-zinc-800 rounded-lg w-full max-h-[90vh] flex flex-col transition-all ${
+        showDebug ? 'max-w-5xl' : 'max-w-2xl'
+      }`}>
         {/* Header */}
         <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
           <div>
@@ -308,6 +327,21 @@ function ConversationDetail({ conversation, onClose }: { conversation: Conversat
             </p>
             <p className="text-[9px] text-zinc-600 font-mono mt-0.5">{conversation.session_id || conversation.id}</p>
           </div>
+          <div className="flex items-center gap-2">
+            {/* Toggle Debug */}
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`h-7 px-3 text-[10px] rounded transition-colors flex items-center gap-1.5 ${
+                showDebug 
+                  ? 'bg-amber-900/30 text-amber-400 border border-amber-800/50' 
+                  : 'text-zinc-500 border border-zinc-800 hover:bg-zinc-800'
+              }`}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+              Debug
+            </button>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded hover:bg-zinc-800 transition-colors"
@@ -316,10 +350,15 @@ function ConversationDetail({ conversation, onClose }: { conversation: Conversat
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
+          </div>
         </div>
         
-        {/* Messages */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 scrollbar-hidden">
+        {/* Content with optional debug panel */}
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          {/* Messages panel */}
+          <div className={`flex-1 overflow-y-auto px-4 py-4 space-y-4 scrollbar-hidden ${
+            showDebug ? 'border-r border-zinc-800' : ''
+          }`}>
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-pulse" />
@@ -328,8 +367,101 @@ function ConversationDetail({ conversation, onClose }: { conversation: Conversat
             <p className="text-[11px] text-zinc-500 text-center py-8">Sin mensajes</p>
           ) : (
             messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
-            ))
+                <MessageBubble 
+                  key={message.id} 
+                  message={message}
+                  isSelected={selectedMessageId === message.id}
+                  onSelect={() => {
+                    setSelectedMessageId(message.id)
+                    setShowDebug(true)
+                  }}
+                />
+              ))
+            )}
+          </div>
+          
+          {/* Debug panel */}
+          {showDebug && (
+            <div className="w-80 flex-shrink-0 overflow-y-auto p-4 bg-zinc-900/50">
+              <p className="text-[9px] text-amber-500/70 uppercase tracking-widest font-medium mb-3">
+                Debug Panel
+              </p>
+              
+              {selectedMessage ? (
+                <div className="space-y-4">
+                  {/* Message Info */}
+                  <div className="space-y-2">
+                    <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Mensaje</p>
+                    <div className="bg-zinc-900 rounded p-2 space-y-1">
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-500">ID:</span>
+                        <span className="text-zinc-300 font-mono">{selectedMessage.id.slice(0, 12)}...</span>
+                      </div>
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-500">Role:</span>
+                        <span className={`font-mono ${selectedMessage.role === 'user' ? 'text-blue-400' : 'text-green-400'}`}>
+                          {selectedMessage.role}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-500">Tiempo:</span>
+                        <span className="text-zinc-300 font-mono">
+                          {new Date(selectedMessage.created_at).toLocaleString('es-AR')}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-500">Largo:</span>
+                        <span className="text-zinc-300 font-mono">{selectedMessage.content?.length || 0} chars</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Content Raw */}
+                  <div className="space-y-2">
+                    <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Contenido Raw</p>
+                    <pre className="bg-zinc-900 rounded p-2 text-[9px] text-zinc-400 font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                      {selectedMessage.content || '(vacío)'}
+                    </pre>
+                  </div>
+                  
+                  {/* Tool Calls */}
+                  {selectedMessage.toolCalls && selectedMessage.toolCalls.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-[8px] text-zinc-600 uppercase tracking-wide">
+                        Tool Calls ({selectedMessage.toolCalls.length})
+                      </p>
+                      <pre className="bg-zinc-900 rounded p-2 text-[9px] text-amber-400/80 font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
+                        {JSON.stringify(selectedMessage.toolCalls, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  
+                  {/* Metadata */}
+                  {selectedMessage.metadata && (
+                    <div className="space-y-2">
+                      <p className="text-[8px] text-zinc-600 uppercase tracking-wide">Metadata</p>
+                      <pre className="bg-zinc-900 rounded p-2 text-[9px] text-purple-400/80 font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                        {JSON.stringify(selectedMessage.metadata, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  
+                  {/* Full JSON */}
+                  <div className="space-y-2">
+                    <p className="text-[8px] text-zinc-600 uppercase tracking-wide">JSON Completo</p>
+                    <pre className="bg-zinc-900 rounded p-2 text-[9px] text-zinc-500 font-mono overflow-x-auto whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
+                      {JSON.stringify(selectedMessage, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-[10px] text-zinc-600">
+                    Tocá un mensaje para ver el payload
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
         
@@ -338,6 +470,7 @@ function ConversationDetail({ conversation, onClose }: { conversation: Conversat
           <div className="flex items-center justify-between text-[10px] text-zinc-500">
             <span>
               {messages.length} mensaje{messages.length !== 1 ? 's' : ''}
+              {selectedMessage && <span className="text-amber-500/70 ml-2">• {selectedMessage.role} seleccionado</span>}
             </span>
             <span>
               {new Date(conversation.created_at).toLocaleDateString('es-AR', { 
