@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase-server'
+import { supabaseSicamar } from '@/lib/supabase-server'
 
 type TipoComando = 'BLOQUEAR' | 'DESBLOQUEAR' | 'CREAR'
 
@@ -29,7 +29,7 @@ interface ComandoRequest {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const supabase = supabaseSicamar
     const body: ComandoRequest = await request.json()
     
     // Validar campos requeridos
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    const supabase = supabaseSicamar
     const { searchParams } = new URL(request.url)
     const estado = searchParams.get('estado')
     
